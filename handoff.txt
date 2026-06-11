@@ -1,0 +1,37 @@
+HomeLife starter package
+Version: 1.0.0
+Tagline: Budget, shop, and plan your household in one place.
+
+What is included:
+- React + TypeScript + Vite app
+- GitHub Pages base path set to /homelife/
+- GitHub Actions Pages deployment workflow
+- Demo role switcher
+- Dashboard
+- Check register
+- Budget page
+- Debt tracker
+- Shared shopping lists
+- Grocery/Sam's/school/custom list support
+- Shopping list estimated totals
+- In-store check-off mode
+- Role-based hiding of financial pages
+- JSON backup export/import
+
+Important security note:
+This starter does not contain real authentication yet. It uses demo users/roles stored locally in the browser.
+Do not store real sensitive financial information in the GitHub-hosted version until Supabase/Firebase Auth and database permissions are added.
+
+Recommended GitHub setup:
+1. Create a GitHub repository named homelife.
+2. Upload/push the files from this ZIP.
+3. Go to Settings > Pages.
+4. Source: GitHub Actions.
+5. Push to main and let the deploy workflow run.
+
+Local run:
+npm install
+npm run dev
+
+Build test:
+npm run build
