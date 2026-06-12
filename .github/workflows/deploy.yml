@@ -42,7 +42,9 @@ jobs:
         run: npm install --registry=https://registry.npmjs.org/
 
       - name: Build
-        run: npm run build
+        run: |
+          npx tsc
+          node ./node_modules/vite/bin/vite.js build
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
