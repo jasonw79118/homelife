@@ -1,19 +1,40 @@
-HomeLife v1.3.0 handoff
+HomeLife update - Meal Planner, Pantry, and Delete Coverage
+Version: 2026.06.12.0002
 
-Main fix: added expanded 79015 catalog and Order/Receipt Import.
+What changed
+1. Added Pantry Builder
+   - Tracks dry goods, spices, canned goods, frozen foods, meats, sauces, vegetables, fruits, baking goods, dairy, snacks, drinks, household, and other items.
+   - Captures quantity, unit, location, estimated unit value, expiration date, notes, store, and price catalog link.
+   - Includes search, category filter, quantity adjustment, CSV export, and delete buttons.
 
-Files are at ZIP root. Unzip directly into C:\Users\jason\homelife.
+2. Added Meal Planner
+   - Adds meals by date, meal type, servings, notes, and ingredients.
+   - Each ingredient can be marked as pantry-covered if already accounted for.
+   - Each meal shows total food value, pantry-covered value, and new grocery cost.
+   - Adds missing ingredients directly to a selected/new grocery list.
+   - Includes add/delete meal and add/delete ingredient controls.
 
-Deploy command:
-  git add .
-  git commit -m "Add expanded catalog and receipt import v1.3.0"
-  git push
+3. Shopping List improvements
+   - Add Shopping List now has Delete List.
+   - Add Item now has Delete Item.
+   - Meal Planner items are added with source notes so the list shows which meal created the item.
 
-GitHub Pages:
-  Settings > Pages > Source = GitHub Actions
+4. Delete button coverage
+   - Added delete controls to price catalog, shopping lists, shopping items, pantry items, meal plans, meal ingredients, statement import rows, transactions, budget categories, and debts.
+   - Statement import still has Clear Imported Rows for full cleanup.
 
-Notes:
-- Static deploy uses docs/index.html and docs/404.html.
-- No npm install is required by the GitHub workflow.
-- Price records are projection estimates and become better when receipt/order rows are merged.
-- Raw receipt/order text is not persisted; only cleaned parsed rows are stored in local browser data.
+5. Dashboard updates
+   - Added meal plan grocery cost, pantry estimate, and food value summaries.
+
+6. Data model update
+   - Added pantryItems and mealPlans to AppData.
+   - normalizeData migrates old saved HomeLife data by adding missing pantry and meal fields without breaking existing register, budget, shopping, price catalog, or statement import data.
+
+Deploy notes
+- Project uses Vite/React/TypeScript.
+- GitHub Pages base is /homelife/.
+- deploy.yml uses Node 22, public npm registry, npm install, npm run build, and SPA fallback copy.
+
+Important
+- This is still browser-local storage. Export JSON Backup from Settings before major changes.
+- The meal cost logic treats pantry-covered ingredients as already accounted for and only adds non-pantry-covered ingredients to the grocery list.
