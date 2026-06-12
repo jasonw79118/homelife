@@ -1,30 +1,30 @@
-# HomeLife
+# HomeLife v1.3.0
 
-**Budget, shop, and plan your household in one place.**
+Budget, shop, and plan your household in one place.
 
-This v1.2.0 release is a static GitHub Pages-safe release. It does not require npm, Vite, or a build step to deploy because GitHub Actions deploys the `docs` folder directly.
+## This release
 
-## What changed in v1.2.0
+- Expands the 79015 price catalog from a small starter set to a much larger projection catalog.
+- Adds Walmart 79015 projection records.
+- Keeps United Supermarkets 79015 comparison records.
+- Adds Order/Receipt Import.
+- Parses CSV/TXT receipt or order exports locally in the browser.
+- Stores only cleaned item rows, not raw receipts or login credentials.
+- Lets you merge receipt/order rows back into the price catalog.
+- Lets you create a reorder shopping list from a parsed receipt.
 
-- Added a starter **Walmart + United Supermarkets price catalog** for Canyon, TX / ZIP 79015.
-- Added 86 editable price records across grocery, household, and school-shopping categories.
-- Added store/category/search filters on the Price Catalog page.
-- Added a **Load/Refresh 79015 Catalog** button.
-- Added CSV export/import for the price catalog.
-- Added online lookup links for each catalog row.
-- Kept raw bank statement imports local in the browser.
-- Kept register, budget, debt, and statement import hidden from non-finance profiles.
+## Deploy
 
-## Important price note
+Unzip this ZIP directly into the `homelife` repository root, then run:
 
-The starter catalog is for budget projection only. Prices change by store, date, substitution, pickup/delivery method, and loyalty offers. Verify prices in Walmart/United before relying on the total.
+```powershell
+git add .
+git commit -m "Add expanded catalog and receipt import v1.3.0"
+git push
+```
 
-## Recommended GitHub Pages setting
+GitHub Pages should be set to GitHub Actions. The workflow deploys the `docs` folder and does not run npm install.
 
-Repository → Settings → Pages → Source → **GitHub Actions**
+## Important pricing note
 
-Then push to `main`.
-
-## Alternate setting
-
-Repository → Settings → Pages → Source → **Deploy from a branch** → Branch: `main` → Folder: `/docs`
+The expanded catalog contains projection estimates, not guaranteed live checkout prices. Use the receipt/order import to make HomeLife learn your actual household purchase prices over time.

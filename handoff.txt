@@ -1,25 +1,19 @@
-HomeLife v1.2.0 handoff
+HomeLife v1.3.0 handoff
 
-Purpose:
-- Adds starter grocery price projection catalog for Canyon, TX / ZIP 79015.
-- Walmart store context: Walmart Supercenter #793, 1701 N 23rd St, Canyon, TX 79015.
-- United store context: United Supermarkets N 23rd & Russell Long, 201 N 23rd St, Canyon, TX 79015.
+Main fix: added expanded 79015 catalog and Order/Receipt Import.
 
-Deployment:
-- Static GitHub Pages deployment remains in docs/.
-- .github/workflows/deploy.yml deploys docs directly; no npm install or Vite build is required.
-- Root index.html mirrors docs/index.html for branch-root testing.
+Files are at ZIP root. Unzip directly into C:\Users\jason\homelife.
 
-Price catalog features:
-- 86 starter estimate rows across Walmart and United Supermarkets.
-- Search/filter by store and category.
-- CSV export/import.
-- Load/Refresh 79015 Catalog button merges default catalog into local browser data.
-- Online lookup links are provided, but the app does not scrape Walmart or United.
+Deploy command:
+  git add .
+  git commit -m "Add expanded catalog and receipt import v1.3.0"
+  git push
 
-Privacy:
-- Statement CSV import still parses locally in-browser and stores only sanitized rows.
-- Finance pages remain hidden for household/child profiles.
+GitHub Pages:
+  Settings > Pages > Source = GitHub Actions
 
-Known limitation:
-- Prices are starter estimates, not live checkout prices. Live Walmart pricing should use approved Walmart APIs through a backend/Supabase Edge Function. United pricing should be manually verified or imported from user-maintained data because no official public product-pricing API was identified.
+Notes:
+- Static deploy uses docs/index.html and docs/404.html.
+- No npm install is required by the GitHub workflow.
+- Price records are projection estimates and become better when receipt/order rows are merged.
+- Raw receipt/order text is not persisted; only cleaned parsed rows are stored in local browser data.
