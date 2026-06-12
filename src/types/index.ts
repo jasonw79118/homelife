@@ -29,7 +29,9 @@ export type ShoppingList = { id: string; name: string; type: ShoppingListType; s
 
 export type PriceCatalogItem = {
   id: string;
-  store: 'Walmart' | "Sam's" | 'Target' | 'Other';
+  store: 'Walmart' | 'United Supermarkets' | "Sam's" | 'Target' | 'Other';
+  storeName?: string;
+  storeAddress?: string;
   storeZip?: string;
   name: string;
   brand?: string;

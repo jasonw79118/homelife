@@ -1,4 +1,4 @@
-import React, { Component, useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { loadData, resetData, saveData } from './services/storage';
 import type { AppData, PriceCatalogItem, Role, ShoppingItem, ShoppingList, StatementImportRow } from './types';
@@ -10,112 +10,29 @@ function money(value: number) { return value.toLocaleString('en-US', { style: 'c
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 function today() { return new Date().toISOString().slice(0, 10); }
 
-function asArray<T>(value: T[] | undefined | null): T[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function asNumber(value: unknown, fallback = 0): number {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function normalizeRole(value: unknown): Role {
-  return value === 'owner' || value === 'financial_manager' || value === 'household_member' || value === 'child'
-    ? value
-    : 'household_member';
-}
-
 function normalizeData(data: Partial<AppData> | null | undefined): AppData {
   const safe = (data ?? {}) as Partial<AppData>;
-  const users = asArray(safe.users).map((u, index) => ({
-    id: String(u?.id || `user-${index + 1}`),
-    name: String(u?.name || `User ${index + 1}`),
-    role: normalizeRole(u?.role)
-  }));
-  const finalUsers = users.length
-    ? users
+  const users = safe.users?.length
+    ? safe.users
     : [
-        { id: 'u1', name: 'Jason', role: 'owner' as Role },
-        { id: 'u3', name: 'Household Member', role: 'household_member' as Role }
+        { id: 'user-owner', name: 'Owner', role: 'owner' as Role },
+        { id: 'user-household', name: 'Household Member', role: 'household_member' as Role }
       ];
 
   return {
-    users: finalUsers,
-    currentUserId: safe.currentUserId && finalUsers.some((u) => u.id === safe.currentUserId) ? safe.currentUserId : finalUsers[0].id,
-    accounts: asArray(safe.accounts).map((a, index) => ({
-      id: String(a?.id || `account-${index + 1}`),
-      name: String(a?.name || `Account ${index + 1}`),
-      type: a?.type === 'checking' || a?.type === 'savings' || a?.type === 'credit' || a?.type === 'cash' ? a.type : 'checking',
-      startingBalance: asNumber(a?.startingBalance)
-    })),
-    transactions: asArray(safe.transactions).map((t, index) => ({
-      id: String(t?.id || `transaction-${index + 1}`),
-      accountId: String(t?.accountId || ''),
-      date: String(t?.date || today()),
-      description: String(t?.description || 'Imported transaction'),
-      category: String(t?.category || 'Uncategorized'),
-      amount: asNumber(t?.amount),
-      cleared: Boolean(t?.cleared)
-    })),
-    budgetCategories: asArray(safe.budgetCategories).map((c, index) => ({
-      id: String(c?.id || `budget-${index + 1}`),
-      name: String(c?.name || 'Uncategorized'),
-      monthlyBudget: asNumber(c?.monthlyBudget)
-    })),
-    debts: asArray(safe.debts).map((d, index) => ({
-      id: String(d?.id || `debt-${index + 1}`),
-      name: String(d?.name || `Debt ${index + 1}`),
-      balance: asNumber(d?.balance),
-      payment: asNumber(d?.payment),
-      rate: asNumber(d?.rate)
-    })),
-    shoppingLists: asArray(safe.shoppingLists).map((l, index) => ({
-      id: String(l?.id || `list-${index + 1}`),
-      name: String(l?.name || `Shopping List ${index + 1}`),
-      type: l?.type === 'grocery' || l?.type === 'sams' || l?.type === 'school' || l?.type === 'custom' ? l.type : 'custom',
-      sharedWith: asArray(l?.sharedWith).map(String),
-      items: asArray(l?.items).map((item, itemIndex) => ({
-        id: String(item?.id || `item-${index + 1}-${itemIndex + 1}`),
-        name: String(item?.name || 'Item'),
-        quantity: asNumber(item?.quantity, 1),
-        estimatedPrice: asNumber(item?.estimatedPrice),
-        actualPrice: item?.actualPrice === undefined ? undefined : asNumber(item.actualPrice),
-        checked: Boolean(item?.checked),
-        store: item?.store ? String(item.store) : undefined,
-        category: item?.category ? String(item.category) : undefined,
-        notes: item?.notes ? String(item.notes) : undefined,
-        source: item?.source === 'manual' || item?.source === 'price_catalog' || item?.source === 'imported' ? item.source : 'manual'
-      }))
-    })),
-    priceCatalog: asArray(safe.priceCatalog).map((p, index) => ({
-      id: String(p?.id || `price-${index + 1}`),
-      store: p?.store === 'Walmart' || p?.store === "Sam's" || p?.store === 'Target' || p?.store === 'Other' ? p.store : 'Other',
-      storeZip: p?.storeZip ? String(p.storeZip) : undefined,
-      name: String(p?.name || 'Item'),
-      brand: p?.brand ? String(p.brand) : undefined,
-      size: p?.size ? String(p.size) : undefined,
-      category: p?.category ? String(p.category) : undefined,
-      price: asNumber(p?.price),
-      lastChecked: String(p?.lastChecked || today()),
-      notes: p?.notes ? String(p.notes) : undefined
-    })),
-    statementImports: asArray(safe.statementImports).map((r, index) => ({
-      id: String(r?.id || `statement-${index + 1}`),
-      date: String(r?.date || today()),
-      description: String(r?.description || 'Imported transaction'),
-      amount: asNumber(r?.amount),
-      type: r?.type === 'credit' ? 'credit' : 'debit',
-      matchedTransactionId: r?.matchedTransactionId ? String(r.matchedTransactionId) : undefined,
-      matchStatus: r?.matchStatus === 'matched' || r?.matchStatus === 'possible' || r?.matchStatus === 'missing_from_register' ? r.matchStatus : 'missing_from_register'
-    }))
-  };
+    users,
+    currentUserId: safe.currentUserId && users.some((u) => u.id === safe.currentUserId) ? safe.currentUserId : users[0].id,
+    accounts: safe.accounts ?? [],
+    transactions: safe.transactions ?? [],
+    budgetCategories: safe.budgetCategories ?? [],
+    debts: safe.debts ?? [],
+    shoppingLists: safe.shoppingLists ?? [],
+    priceCatalog: safe.priceCatalog ?? [],
+    statementImports: safe.statementImports ?? []
+  } as AppData;
 }
 
 function App() {
-  useEffect(() => {
-    const root = document.getElementById('root');
-    if (root) root.dataset.homelifeMounted = 'true';
-  }, []);
   const [data, setData] = useState<AppData>(() => {
     try {
       return normalizeData(loadData());
@@ -188,7 +105,7 @@ function PriceCatalog({ data, update }: { data: AppData; update: (d: AppData) =>
   const filtered = data.priceCatalog.filter(p => `${p.name} ${p.brand ?? ''} ${p.store} ${p.category ?? ''}`.toLowerCase().includes(query.toLowerCase()));
   function addPrice() {
     const name = prompt('Product name? Example: Milk'); if (!name) return;
-    const store = (prompt('Store? Walmart, Sam\'s, Target, Other', 'Walmart') || 'Walmart') as PriceCatalogItem['store'];
+    const store = (prompt('Store? Walmart, United Supermarkets, Sam\'s, Target, Other', 'Walmart') || 'Walmart') as PriceCatalogItem['store'];
     const price = Number(prompt('Price?', '0') ?? '0');
     const item: PriceCatalogItem = { id: uid('price'), store, storeZip: prompt('ZIP or store area?', '79015') || undefined, name, brand: prompt('Brand?', '') || undefined, size: prompt('Size?', '') || undefined, category: prompt('Category?', '') || undefined, price: Number.isFinite(price) ? price : 0, lastChecked: today(), notes: 'Manual entry' };
     update({ ...data, priceCatalog: [...data.priceCatalog, item] });
@@ -198,7 +115,7 @@ function PriceCatalog({ data, update }: { data: AppData; update: (d: AppData) =>
     const rows = [['store','zip','name','brand','size','category','price','lastChecked','notes'], ...data.priceCatalog.map(p => [p.store, p.storeZip ?? '', p.name, p.brand ?? '', p.size ?? '', p.category ?? '', String(p.price), p.lastChecked, p.notes ?? ''])];
     downloadText('homelife-price-catalog.csv', rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n'));
   }
-  return <div className="card wide"><div className="split"><div><h3>Local Price Catalog</h3><p className="muted">Use this now for close grocery projections. Later, this page can call a Supabase Edge Function for approved Walmart pricing lookup without scraping.</p></div><div className="settings-actions"><button onClick={addPrice}>Add Price</button><button onClick={exportCsv}>Export CSV</button></div></div><input className="full-input" placeholder="Search Walmart milk, eggs, Sam's, school supplies..." value={query} onChange={e => setQuery(e.target.value)} /><table><thead><tr><th>Store</th><th>Item</th><th>Brand/Size</th><th>Category</th><th>Price</th><th>Checked</th><th></th></tr></thead><tbody>{filtered.map(p => <tr key={p.id}><td>{p.store}<br /><small>{p.storeZip}</small></td><td>{p.name}</td><td>{p.brand ?? ''} {p.size ? `· ${p.size}` : ''}</td><td>{p.category}</td><td>{money(p.price)}</td><td>{p.lastChecked}</td><td><button onClick={() => removePrice(p.id)}>Remove</button></td></tr>)}</tbody></table></div>;
+  return <div className="card wide"><div className="split"><div><h3>Local Price Catalog</h3><p className="muted">Starter projection catalog for Walmart Supercenter #793 and United Supermarkets in Canyon, TX 79015. These are editable estimates, not live checkout prices.</p></div><div className="settings-actions"><button onClick={addPrice}>Add Price</button><button onClick={exportCsv}>Export CSV</button></div></div><input className="full-input" placeholder="Search Walmart milk, eggs, Sam's, school supplies..." value={query} onChange={e => setQuery(e.target.value)} /><table><thead><tr><th>Store</th><th>Item</th><th>Brand/Size</th><th>Category</th><th>Price</th><th>Checked</th><th></th></tr></thead><tbody>{filtered.map(p => <tr key={p.id}><td>{p.store}<br /><small>{p.storeZip}</small></td><td>{p.name}</td><td>{p.brand ?? ''} {p.size ? `· ${p.size}` : ''}</td><td>{p.category}</td><td>{money(p.price)}</td><td>{p.lastChecked}</td><td><button onClick={() => removePrice(p.id)}>Remove</button></td></tr>)}</tbody></table></div>;
 }
 
 function parseCsv(text: string): string[][] {
@@ -258,43 +175,11 @@ function SettingsPage({ data, update }: { data: AppData; update: (d: AppData) =>
 }
 
 
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char] ?? char));
-}
-
 function showStartupError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   const root = document.getElementById('root');
   if (root) {
-    root.dataset.homelifeMounted = 'true';
-    root.innerHTML = `<div style="font-family:system-ui;padding:24px;max-width:900px;margin:auto"><h1>HomeLife startup error</h1><p>The app loaded, but React hit an error before it could render.</p><pre style="white-space:pre-wrap;background:#fee2e2;border:1px solid #fecaca;padding:16px;border-radius:12px">${escapeHtml(message)}</pre><p>Try clearing this site's browser storage for HomeLife, then refresh.</p></div>`;
-  }
-}
-
-class ErrorBoundary extends Component<{ children: React.ReactNode }, { error?: Error }> {
-  constructor(props: { children: React.ReactNode }) {
-    super(props);
-    this.state = {};
-  }
-
-  static getDerivedStateFromError(error: Error) {
-    return { error };
-  }
-
-  componentDidCatch(error: Error) {
-    console.error('HomeLife render failed', error);
-  }
-
-  render() {
-    if (this.state.error) {
-      return <div className="startup-error">
-        <h1>HomeLife startup error</h1>
-        <p>The app loaded, but something in the saved data or screen render failed.</p>
-        <pre>{this.state.error.message}</pre>
-        <button onClick={() => { resetData(); window.location.reload(); }}>Clear HomeLife saved demo data and reload</button>
-      </div>;
-    }
-    return this.props.children;
+    root.innerHTML = `<div style="font-family:system-ui;padding:24px;max-width:900px;margin:auto"><h1>HomeLife startup error</h1><p>The app loaded, but React hit an error before it could render.</p><pre style="white-space:pre-wrap;background:#fee2e2;border:1px solid #fecaca;padding:16px;border-radius:12px">${message}</pre><p>Try clearing this site's browser storage, then refresh.</p></div>`;
   }
 }
 
@@ -308,7 +193,8 @@ if (!rootElement) {
 }
 
 try {
-  createRoot(rootElement).render(<React.StrictMode><ErrorBoundary><App /></ErrorBoundary></React.StrictMode>);
+  rootElement.dataset.homelifeMounted = 'true';
+  createRoot(rootElement).render(<React.StrictMode><App /></React.StrictMode>);
 } catch (error) {
   console.error('HomeLife startup failed', error);
   showStartupError(error);
