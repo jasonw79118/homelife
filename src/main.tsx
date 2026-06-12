@@ -193,6 +193,7 @@ if (!rootElement) {
 }
 
 try {
+  rootElement.dataset.homelifeMounted = 'true';
   createRoot(rootElement).render(<React.StrictMode><App /></React.StrictMode>);
 } catch (error) {
   console.error('HomeLife startup failed', error);

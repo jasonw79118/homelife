@@ -1,16 +1,18 @@
-HomeLife starter update
-Version: 1.1.0
+HomeLife v1.1.2 deployment visibility fix
 
-Added:
-- Local Price Catalog page for Walmart/Sam's/other price estimates.
-- Shopping list Add Item now checks the price catalog and pulls estimated price, store, category, and notes.
-- Bank Statement Import page for CSV files.
-- Statement import is designed to parse locally in the browser and store sanitized rows only.
-- Reconciliation status: matched, possible, or missing from register.
-- Finance privacy: Register, Budget, Debt, and Statement Import are hidden from household_member and child demo roles.
-- .env.example added for Supabase setup.
+Purpose:
+- Keeps files at ZIP root for direct unzip into the homelife project root.
+- Adds a safe visible fallback in index.html so the page does not stay stuck on Loading HomeLife if GitHub Pages is serving source files instead of the built Vite output.
+- Keeps the React app intact for normal Vite/GitHub Actions deployment.
+- Keeps Supabase environment variables in the GitHub Pages workflow.
 
-Important:
-- This ZIP is packaged with files at the root level, not inside an extra homelife/ folder.
-- Walmart live price lookup should be added through an approved API or Supabase Edge Function later. Do not scrape Walmart pages directly from GitHub Pages.
-- Front-end hiding is in place now, but real protection requires Supabase Auth plus Row Level Security before storing sensitive financial data online.
+Important deployment note:
+- Preferred: GitHub Settings > Pages > Source = GitHub Actions.
+- If using branch deploy instead, use main / docs after building and committing the docs folder.
+
+After unzipping:
+1. npm run build
+2. git add .
+3. git commit -m "Fix HomeLife deployment visibility v1.1.2"
+4. git push
+5. Confirm GitHub Actions deploy finished successfully.
