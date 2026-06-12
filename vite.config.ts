@@ -3,5 +3,10 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  base: '/homelife/'
+  base: '/homelife/',
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    sourcemap: true
+  }
 });

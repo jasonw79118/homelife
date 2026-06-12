@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Home, WalletCards, ShoppingCart, Settings, BarChart3, Landmark, EyeOff, FileSearch, Tags } from 'lucide-react';
 import { loadData, resetData, saveData } from './services/storage';
 import type { AppData, PriceCatalogItem, Role, ShoppingItem, ShoppingList, StatementImportRow } from './types';
 import './styles.css';
@@ -49,21 +48,21 @@ function App() {
   function update(next: AppData) { const normalized = normalizeData(next); setData(normalized); saveData(normalized); }
 
   const nav = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home, show: true },
-    { id: 'register', label: 'Register', icon: WalletCards, show: canViewFinance },
-    { id: 'budget', label: 'Budget', icon: BarChart3, show: canViewFinance },
-    { id: 'debt', label: 'Debt', icon: Landmark, show: canViewFinance },
-    { id: 'reconcile', label: 'Statement Import', icon: FileSearch, show: canViewFinance },
-    { id: 'prices', label: 'Price Catalog', icon: Tags, show: true },
-    { id: 'shopping', label: 'Shopping Lists', icon: ShoppingCart, show: true },
-    { id: 'settings', label: 'Settings', icon: Settings, show: true }
+    { id: 'dashboard', label: 'Dashboard', icon: '🏠', show: true },
+    { id: 'register', label: 'Register', icon: '💳', show: canViewFinance },
+    { id: 'budget', label: 'Budget', icon: '📊', show: canViewFinance },
+    { id: 'debt', label: 'Debt', icon: '🏦', show: canViewFinance },
+    { id: 'reconcile', label: 'Statement Import', icon: '🔎', show: canViewFinance },
+    { id: 'prices', label: 'Price Catalog', icon: '🏷️', show: true },
+    { id: 'shopping', label: 'Shopping Lists', icon: '🛒', show: true },
+    { id: 'settings', label: 'Settings', icon: '⚙️', show: true }
   ];
 
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand-card"><div className="brand-mark">HL</div><div><h1>HomeLife</h1><p>Budget, shop, and plan your household in one place.</p></div></div>
-      <nav>{nav.filter((n) => n.show).map((n) => { const Icon = n.icon; return <button key={n.id} className={page === n.id ? 'active' : ''} onClick={() => setPage(n.id)}><Icon size={18} /> {n.label}</button>; })}</nav>
-      {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this role.</div>}
+      <nav>{nav.filter((n) => n.show).map((n) => <button key={n.id} className={page === n.id ? 'active' : ''} onClick={() => setPage(n.id)}><span aria-hidden="true">{n.icon}</span> {n.label}</button>)}</nav>
+      {!canViewFinance && <div className="privacy-note"><span aria-hidden="true">🔒</span> Register, budget, debt, and statements are hidden for this role.</div>}
     </aside>
     <main>
       <header className="topbar"><div><h2>{nav.find((n) => n.id === page)?.label ?? 'Dashboard'}</h2><p>Signed in as <strong>{currentUser.name}</strong> · {currentUser.role.replace('_', ' ')}</p></div><select value={data.currentUserId} onChange={(e) => update({ ...data, currentUserId: e.target.value })}>{data.users.map((u) => <option key={u.id} value={u.id}>{u.name} — {u.role.replace('_', ' ')}</option>)}</select></header>
@@ -175,10 +174,27 @@ function SettingsPage({ data, update }: { data: AppData; update: (d: AppData) =>
   return <div className="card wide"><h3>Settings & Permissions</h3><p className="muted">Demo roles hide finance pages in the interface now. When Supabase is connected, enforce the same restrictions with Row Level Security policies.</p><table><thead><tr><th>User</th><th>Role</th><th>Register/Budget/Debt</th><th>Statement Import</th><th>Shopping/Prices</th></tr></thead><tbody>{data.users.map(u => <tr key={u.id}><td>{u.name}</td><td>{u.role.replace('_', ' ')}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>Visible/shared</td></tr>)}</tbody></table><div className="settings-actions"><button onClick={exportBackup}>Export JSON Backup</button><label className="button-like">Import JSON Backup<input type="file" accept="application/json" onChange={importBackup} hidden /></label><button className="danger" onClick={reset}>Reset Demo Data</button></div></div>;
 }
 
+
+function showStartupError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const root = document.getElementById('root');
+  if (root) {
+    root.innerHTML = `<div style="font-family:system-ui;padding:24px;max-width:900px;margin:auto"><h1>HomeLife startup error</h1><p>The app loaded, but React hit an error before it could render.</p><pre style="white-space:pre-wrap;background:#fee2e2;border:1px solid #fecaca;padding:16px;border-radius:12px">${message}</pre><p>Try clearing this site's browser storage, then refresh.</p></div>`;
+  }
+}
+
+window.addEventListener('error', (event) => showStartupError(event.error ?? event.message));
+window.addEventListener('unhandledrejection', (event) => showStartupError(event.reason));
+
 const rootElement = document.getElementById('root');
 
 if (!rootElement) {
   throw new Error('HomeLife could not start because index.html is missing <div id="root"></div>.');
 }
 
-createRoot(rootElement).render(<React.StrictMode><App /></React.StrictMode>);
+try {
+  createRoot(rootElement).render(<React.StrictMode><App /></React.StrictMode>);
+} catch (error) {
+  console.error('HomeLife startup failed', error);
+  showStartupError(error);
+}
