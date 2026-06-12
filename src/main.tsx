@@ -11,14 +11,39 @@ function money(value: number) { return value.toLocaleString('en-US', { style: 'c
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 function today() { return new Date().toISOString().slice(0, 10); }
 
-function normalizeData(data: AppData): AppData {
-  return { ...data, priceCatalog: data.priceCatalog ?? [], statementImports: data.statementImports ?? [] };
+function normalizeData(data: Partial<AppData> | null | undefined): AppData {
+  const safe = (data ?? {}) as Partial<AppData>;
+  const users = safe.users?.length
+    ? safe.users
+    : [
+        { id: 'user-owner', name: 'Owner', role: 'owner' as Role },
+        { id: 'user-household', name: 'Household Member', role: 'household_member' as Role }
+      ];
+
+  return {
+    users,
+    currentUserId: safe.currentUserId && users.some((u) => u.id === safe.currentUserId) ? safe.currentUserId : users[0].id,
+    accounts: safe.accounts ?? [],
+    transactions: safe.transactions ?? [],
+    budgetCategories: safe.budgetCategories ?? [],
+    debts: safe.debts ?? [],
+    shoppingLists: safe.shoppingLists ?? [],
+    priceCatalog: safe.priceCatalog ?? [],
+    statementImports: safe.statementImports ?? []
+  } as AppData;
 }
 
 function App() {
-  const [data, setData] = useState<AppData>(() => normalizeData(loadData()));
+  const [data, setData] = useState<AppData>(() => {
+    try {
+      return normalizeData(loadData());
+    } catch (error) {
+      console.error('HomeLife failed to load saved data. Starting with safe defaults.', error);
+      return normalizeData(null);
+    }
+  });
   const [page, setPage] = useState('dashboard');
-  const currentUser = data.users.find((u) => u.id === data.currentUserId) ?? data.users[0];
+  const currentUser = data.users.find((u) => u.id === data.currentUserId) ?? data.users[0] ?? { id: 'user-owner', name: 'Owner', role: 'owner' as Role };
   const canViewFinance = financeRoles.includes(currentUser.role);
 
   function update(next: AppData) { const normalized = normalizeData(next); setData(normalized); saveData(normalized); }
@@ -150,4 +175,10 @@ function SettingsPage({ data, update }: { data: AppData; update: (d: AppData) =>
   return <div className="card wide"><h3>Settings & Permissions</h3><p className="muted">Demo roles hide finance pages in the interface now. When Supabase is connected, enforce the same restrictions with Row Level Security policies.</p><table><thead><tr><th>User</th><th>Role</th><th>Register/Budget/Debt</th><th>Statement Import</th><th>Shopping/Prices</th></tr></thead><tbody>{data.users.map(u => <tr key={u.id}><td>{u.name}</td><td>{u.role.replace('_', ' ')}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>Visible/shared</td></tr>)}</tbody></table><div className="settings-actions"><button onClick={exportBackup}>Export JSON Backup</button><label className="button-like">Import JSON Backup<input type="file" accept="application/json" onChange={importBackup} hidden /></label><button className="danger" onClick={reset}>Reset Demo Data</button></div></div>;
 }
 
-createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);
+const rootElement = document.getElementById('root');
+
+if (!rootElement) {
+  throw new Error('HomeLife could not start because index.html is missing <div id="root"></div>.');
+}
+
+createRoot(rootElement).render(<React.StrictMode><App /></React.StrictMode>);
