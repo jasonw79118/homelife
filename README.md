@@ -2,31 +2,50 @@
 
 **Budget, shop, and plan your household in one place.**
 
-HomeLife is a starter React/Vite household finance and shopping-list app designed for GitHub Pages hosting.
+HomeLife is a React/Vite household finance and shopping-list app designed for GitHub Pages under:
 
-## Current starter features
+```text
+https://jasonw79118.github.io/homelife/
+```
 
-- Local demo login with roles
+## Current features
+
 - Dashboard
-- Budget overview
 - Check register
+- Budget overview
 - Debt tracker
 - Shared shopping lists
-- Grocery/Sam's/school/custom list support
-- Estimated and actual list totals
+- Grocery, Sam's, school, and custom list support
+- Estimated grocery/list totals using a local price catalog
 - In-store check-off mode
-- Role-based hiding of finance modules
+- Bank statement CSV import and sanitized reconciliation review
+- Role-based hiding of register, budget, debt, and statement import screens
 - Local-storage persistence
 - JSON backup export/import
 
-## Demo users
+## Important deployment fix in v1.1.3
 
-No real authentication is included yet. This starter uses local demo roles until Supabase/Firebase is added.
+The GitHub Actions workflow now deploys the prebuilt `docs` folder directly. This avoids the GitHub runner npm failure that showed:
 
-- Owner/Admin: full access
-- Financial Manager: finance + lists
-- Household Member: lists only
-- Child: assigned lists only
+```text
+npm error Exit handler never called!
+```
+
+The production build has already been copied to `docs`, so the site can deploy without running `npm install` inside GitHub Actions.
+
+## GitHub Pages setting
+
+Use:
+
+```text
+Repository → Settings → Pages → Source → GitHub Actions
+```
+
+If you ever switch to branch deployment instead, choose:
+
+```text
+main / docs
+```
 
 ## Run locally
 
@@ -35,24 +54,33 @@ npm install
 npm run dev
 ```
 
-## Build
+Open:
 
-```bash
-npm run build
+```text
+http://localhost:5173/homelife/
 ```
 
-## GitHub Pages
+## Update the prebuilt GitHub Pages files after code changes
 
-The Vite base path is already set to `/homelife/` in `vite.config.ts`.
+```bash
+npm run build:docs
+```
 
-Suggested repo name: `homelife`
+Then commit and push.
 
-After pushing to GitHub, enable Pages for the built output or add a GitHub Actions workflow.
+## Demo users
+
+No real authentication is included yet. This starter uses local demo roles until Supabase Auth is added.
+
+- Owner: full access
+- Financial Manager: finance + lists
+- Household Member: shared lists only
+- Child: assigned/shared lists only
 
 ## Next recommended phase
 
 1. Add Supabase Auth
-2. Add real user accounts
-3. Add row-level security permissions
+2. Add real users and family accounts
+3. Add Supabase Row Level Security for finance/private data
 4. Import the current Excel budget workbook
 5. Add cash-flow forecasting from recurring transactions

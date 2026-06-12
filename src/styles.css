@@ -62,3 +62,6 @@ button.danger { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
 .pill.missing_from_register { background: #fee2e2; color: #991b1b; }
 small { color: #64748b; }
 @media (max-width: 850px) { .split { flex-direction: column; } }
+.startup-error { max-width: 900px; margin: 40px auto; padding: 24px; background: white; border: 1px solid #fecaca; border-radius: 18px; box-shadow: 0 18px 50px rgba(127,29,29,.12); }
+.startup-error h1 { color: #991b1b; }
+.startup-error pre { white-space: pre-wrap; background: #fee2e2; border: 1px solid #fecaca; padding: 16px; border-radius: 12px; color: #7f1d1d; }

@@ -1,18 +1,27 @@
-HomeLife v1.1.2 deployment visibility fix
+HomeLife v1.1.3 root deploy fix
 
-Purpose:
-- Keeps files at ZIP root for direct unzip into the homelife project root.
-- Adds a safe visible fallback in index.html so the page does not stay stuck on Loading HomeLife if GitHub Pages is serving source files instead of the built Vite output.
-- Keeps the React app intact for normal Vite/GitHub Actions deployment.
-- Keeps Supabase environment variables in the GitHub Pages workflow.
-
-Important deployment note:
-- Preferred: GitHub Settings > Pages > Source = GitHub Actions.
-- If using branch deploy instead, use main / docs after building and committing the docs folder.
+What was fixed:
+1. Rebuilt the app and copied the production output to /docs.
+2. Changed GitHub Actions to deploy the prebuilt /docs folder directly, avoiding the npm runner failure: "Exit handler never called!"
+3. Added a cross-platform script: npm run build:docs.
+4. Added .nojekyll and 404.html to /docs for GitHub Pages.
+5. Hardened app startup so old/bad localStorage data should not leave the site stuck on "Loading HomeLife...".
+6. Added deeper data normalization for users, accounts, transactions, budget categories, debts, shopping lists, price catalog, and statement imports.
+7. Added a React error boundary with a button to clear saved demo data if a browser has bad older localStorage.
+8. Files are packaged at ZIP root. Unzip directly into C:\Users\jason\homelife and overwrite.
 
 After unzipping:
-1. npm run build
-2. git add .
-3. git commit -m "Fix HomeLife deployment visibility v1.1.2"
-4. git push
-5. Confirm GitHub Actions deploy finished successfully.
+1. git add .
+2. git commit -m "Fix HomeLife deploy v1.1.3"
+3. git push
+4. GitHub repo > Settings > Pages > Source should be GitHub Actions.
+
+Do not run npm install in GitHub Actions for this version. The workflow deploys /docs directly.
+
+For future code changes:
+1. npm install
+2. npm run dev
+3. npm run build:docs
+4. git add .
+5. git commit -m "Update HomeLife"
+6. git push
