@@ -10,6 +10,11 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  VITE_SUPABASE_URL: https://mbxvdynhcqjjudejuwwb.supabase.co
+  VITE_SUPABASE_ANON_KEY: sb_publishable_EbkNshFx4_9rq8vivZvXKQ_mQ8aDTyc
+
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -25,16 +30,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+
+      - name: Force npm public registry
+        run: |
+          npm config set registry https://registry.npmjs.org/
+          npm config delete proxy || true
+          npm config delete https-proxy || true
+          npm config list
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --registry=https://registry.npmjs.org/
 
       - name: Build
         run: npm run build
-        env:
-          VITE_SUPABASE_URL: https://mbxvdynhcqjjudejuwwb.supabase.co
-          VITE_SUPABASE_ANON_KEY: sb_publishable_EbkNshFx4_9rq8vivZvXKQ_mQ8aDTyc
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
