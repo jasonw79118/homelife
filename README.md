@@ -2,85 +2,24 @@
 
 **Budget, shop, and plan your household in one place.**
 
-HomeLife is a React/Vite household finance and shopping-list app designed for GitHub Pages under:
+This v1.1.4 fix is a static GitHub Pages-safe release. It does not require npm, Vite, or a build step to deploy.
 
-```text
-https://jasonw79118.github.io/homelife/
-```
+## What changed in v1.1.4
 
-## Current features
+- Replaced the deployment-check fallback page with the actual HomeLife app.
+- Root `index.html` works if GitHub Pages is set to deploy from the repository root.
+- `docs/index.html` works if GitHub Pages is set to deploy from `main / docs`.
+- GitHub Actions workflow deploys `docs` directly and does not run `npm install`, avoiding the GitHub runner npm failure.
+- Register, budget, debt, and statement import remain hidden from non-finance roles.
+- Statement CSV import remains local in the browser and only stores sanitized transaction rows.
 
-- Dashboard
-- Check register
-- Budget overview
-- Debt tracker
-- Shared shopping lists
-- Grocery, Sam's, school, and custom list support
-- Estimated grocery/list totals using a local price catalog
-- In-store check-off mode
-- Bank statement CSV import and sanitized reconciliation review
-- Role-based hiding of register, budget, debt, and statement import screens
-- Local-storage persistence
-- JSON backup export/import
+## Recommended GitHub Pages setting
 
-## Important deployment fix in v1.1.3
+Repository → Settings → Pages → Source → **GitHub Actions**
 
-The GitHub Actions workflow now deploys the prebuilt `docs` folder directly. This avoids the GitHub runner npm failure that showed:
+Then push to `main`.
 
-```text
-npm error Exit handler never called!
-```
+## Alternate setting
 
-The production build has already been copied to `docs`, so the site can deploy without running `npm install` inside GitHub Actions.
+Repository → Settings → Pages → Source → **Deploy from a branch** → Branch: `main` → Folder: `/docs`
 
-## GitHub Pages setting
-
-Use:
-
-```text
-Repository → Settings → Pages → Source → GitHub Actions
-```
-
-If you ever switch to branch deployment instead, choose:
-
-```text
-main / docs
-```
-
-## Run locally
-
-```bash
-npm install
-npm run dev
-```
-
-Open:
-
-```text
-http://localhost:5173/homelife/
-```
-
-## Update the prebuilt GitHub Pages files after code changes
-
-```bash
-npm run build:docs
-```
-
-Then commit and push.
-
-## Demo users
-
-No real authentication is included yet. This starter uses local demo roles until Supabase Auth is added.
-
-- Owner: full access
-- Financial Manager: finance + lists
-- Household Member: shared lists only
-- Child: assigned/shared lists only
-
-## Next recommended phase
-
-1. Add Supabase Auth
-2. Add real users and family accounts
-3. Add Supabase Row Level Security for finance/private data
-4. Import the current Excel budget workbook
-5. Add cash-flow forecasting from recurring transactions

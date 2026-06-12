@@ -1,33 +1,174 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="HomeLife - Budget, shop, and plan your household in one place." />
-    <link rel="icon" type="image/svg+xml" href="/homelife/favicon.svg" />
-    <title>HomeLife</title>
-    <style>
-      :root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#eef4ff}body{margin:0}.boot{max-width:960px;margin:40px auto;padding:24px}.boot-card{background:white;border:1px solid #dbe7ff;border-radius:18px;box-shadow:0 18px 50px rgba(30,64,175,.12);padding:24px}.boot-mark{width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,#1d4ed8,#0f766e);color:white;display:grid;place-items:center;font-weight:800;margin-bottom:12px}.boot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:18px}.boot-tile{background:#f8fbff;border:1px solid #e4ecff;border-radius:14px;padding:14px}.boot-warn{background:#fff7ed;border:1px solid #fed7aa;border-radius:14px;padding:14px;margin-top:18px;color:#7c2d12}code{background:#eef2ff;padding:2px 5px;border-radius:6px}
-    </style>
-  </head>
-  <body>
-    <noscript>HomeLife requires JavaScript to run.</noscript>
-    <div id="root">
-      <div class="boot" id="boot-loading">
-        <div class="boot-card">
-          <div class="boot-mark">HL</div>
-          <h1>Loading HomeLife...</h1>
-          <p>Budget, shop, and plan your household in one place.</p>
-        </div>
-      </div>
-    </div>
-    <script>
-      window.setTimeout(function(){
-        var root=document.getElementById('root');
-        if(!root || root.dataset.homelifeMounted==='true') return;
-        root.innerHTML = '<main class="boot"><section class="boot-card"><div class="boot-mark">HL</div><h1>HomeLife</h1><p><strong>Budget, shop, and plan your household in one place.</strong></p><p>The site shell is visible, but the React bundle has not loaded yet. This usually means GitHub Pages is serving the source files instead of the Vite build output.</p><div class="boot-grid"><div class="boot-tile"><strong>Shopping Lists</strong><br/>Grocery, Sam\'s, school, and custom lists.</div><div class="boot-tile"><strong>Price Catalog</strong><br/>Manual local pricing for close projections.</div><div class="boot-tile"><strong>Private Finance</strong><br/>Register and debt hidden by role.</div><div class="boot-tile"><strong>Statement Import</strong><br/>CSV reconciliation with sanitized rows.</div></div><div class="boot-warn"><strong>Deployment check:</strong> In GitHub, set <code>Settings → Pages → Source</code> to <code>GitHub Actions</code>, then push again. If using branch deploy, select <code>main / docs</code> after running <code>npm run build</code>.</div></section></main>';
-      }, 1800);
-    </script>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="HomeLife - Budget, shop, and plan your household in one place." />
+  <title>HomeLife</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <style>
+    :root{
+      color-scheme: light;
+      --bg:#eef4ff;--panel:#ffffff;--ink:#172033;--muted:#64748b;--line:#dbe7ff;
+      --blue:#1d4ed8;--teal:#0f766e;--soft:#f8fbff;--red:#b91c1c;--green:#047857;--orange:#c2410c;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,#eef4ff,#f8fbff 35%,#edf7f4);color:var(--ink)}
+    button,input,select,textarea{font:inherit}
+    button,.button-like{border:0;border-radius:12px;padding:10px 13px;background:#e8f0ff;color:#123b8f;font-weight:700;cursor:pointer;display:inline-flex;gap:8px;align-items:center;justify-content:center;text-decoration:none}
+    button:hover,.button-like:hover{background:#dce8ff}.primary{background:linear-gradient(135deg,var(--blue),var(--teal));color:#fff}.danger{background:#fee2e2;color:var(--red)}
+    .app-shell{display:grid;grid-template-columns:290px minmax(0,1fr);min-height:100vh}.sidebar{padding:20px;border-right:1px solid var(--line);background:rgba(255,255,255,.76);backdrop-filter:blur(10px);position:sticky;top:0;height:100vh;overflow:auto}.brand-card{display:flex;gap:13px;align-items:flex-start;background:linear-gradient(135deg,#fff,#f3fbff);border:1px solid var(--line);border-radius:18px;padding:16px;margin-bottom:16px;box-shadow:0 14px 40px rgba(30,64,175,.10)}.brand-mark{width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,var(--blue),var(--teal));color:white;display:grid;place-items:center;font-weight:900;letter-spacing:.5px;flex:0 0 auto}.brand-card h1{font-size:22px;margin:0}.brand-card p{margin:4px 0 0;color:var(--muted);font-size:13px;line-height:1.35}.sidebar nav{display:grid;gap:8px}.sidebar nav button{width:100%;justify-content:flex-start;background:transparent;color:#334155}.sidebar nav button.active{background:#e8f0ff;color:#0f2d70}.privacy-note{margin-top:16px;background:#fff7ed;border:1px solid #fed7aa;color:#7c2d12;border-radius:14px;padding:12px;font-size:13px}.version{position:fixed;left:10px;bottom:8px;font-size:11px;color:#64748b;background:rgba(255,255,255,.8);border:1px solid var(--line);border-radius:999px;padding:3px 8px}
+    main{padding:24px;min-width:0}.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}.topbar h2{margin:0;font-size:28px}.topbar p{margin:4px 0 0;color:var(--muted)}.topbar select,.full-input,input,textarea,select{border:1px solid var(--line);border-radius:12px;background:white;color:var(--ink);padding:10px 12px}.full-input{width:100%;margin:12px 0}.grid{display:grid;gap:16px}.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}.card{background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:20px;padding:18px;box-shadow:0 14px 40px rgba(30,64,175,.08);min-width:0}.card.wide{overflow:auto}.card h3{margin:0 0 8px}.card .label{margin:0 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-size:12px;font-weight:800}.card h3.value{font-size:30px;margin:0 0 6px}.muted{color:var(--muted)}.split{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.actions,.settings-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0}.totals{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}.totals span,.pill{display:inline-flex;border-radius:999px;padding:5px 9px;background:#edf5ff;border:1px solid #dbeafe;color:#1e3a8a;font-size:12px;font-weight:700}.pill.matched{background:#dcfce7;color:#166534;border-color:#bbf7d0}.pill.possible{background:#fef3c7;color:#92400e;border-color:#fde68a}.pill.missing_from_register{background:#fee2e2;color:#991b1b;border-color:#fecaca}
+    table{width:100%;border-collapse:collapse;margin-top:12px;min-width:620px}th,td{text-align:left;border-bottom:1px solid #e6eefc;padding:10px 8px;vertical-align:top}th{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:#64748b;background:#f8fbff}.negative{color:var(--red);font-weight:800}.positive{color:var(--green);font-weight:800}.right{text-align:right}.small{font-size:12px;color:var(--muted)}
+    .list-header{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.shopping-list{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:9px}.shopping-list li{border:1px solid #e6eefc;border-radius:14px;padding:11px;background:#f8fbff}.shopping-list li.checked{opacity:.58;text-decoration:line-through}.shopping-list label{display:flex;gap:10px;align-items:center;font-weight:800}.shopping-list small{display:block;margin-left:28px;color:var(--muted)}.empty{border:1px dashed #bad0ff;background:#f8fbff;color:#64748b;border-radius:16px;padding:20px;text-align:center}.banner{background:#ecfeff;border:1px solid #a5f3fc;color:#164e63;border-radius:16px;padding:14px;margin-bottom:16px}.hide{display:none!important}.modal{position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:18px;z-index:30}.modal-card{width:min(620px,100%);background:white;border-radius:20px;border:1px solid var(--line);box-shadow:0 30px 90px rgba(2,6,23,.35);padding:18px}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.form-grid label{display:grid;gap:4px;font-size:12px;font-weight:800;color:#475569}.form-grid input,.form-grid select,.form-grid textarea{width:100%}.form-grid .span2{grid-column:1/-1}.footer-note{margin-top:18px;color:#64748b;font-size:12px}
+    @media (max-width: 900px){.app-shell{grid-template-columns:1fr}.sidebar{height:auto;position:relative;border-right:0;border-bottom:1px solid var(--line)}.sidebar nav{grid-template-columns:repeat(2,minmax(0,1fr))}.topbar{display:block}.topbar select{margin-top:10px;width:100%}.grid.two,.grid.three{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.form-grid .span2{grid-column:auto}.version{position:static;margin:10px}}
+  </style>
+</head>
+<body>
+  <noscript>HomeLife requires JavaScript to run.</noscript>
+  <div id="app"></div>
+  <script>
+  (function(){
+    const VERSION = '1.1.4';
+    const STORAGE_KEY = 'homelife-static-data-v114';
+    const financeRoles = ['owner','financial_manager'];
+    const app = document.getElementById('app');
+    const fmt = new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'});
+    const money = n => fmt.format(Number(n)||0);
+    const today = () => new Date().toISOString().slice(0,10);
+    const uid = p => `${p}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const escapeHtml = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const defaultData = () => ({
+      users:[
+        {id:'user-owner',name:'Jason / Owner',role:'owner'},
+        {id:'user-finance',name:'Financial Manager',role:'financial_manager'},
+        {id:'user-household',name:'Household Member',role:'household_member'},
+        {id:'user-child',name:'Child',role:'child'}
+      ],
+      currentUserId:'user-owner',
+      accounts:[{id:'acct-checking',name:'Checking',startingBalance:11837.93,type:'checking'},{id:'acct-savings',name:'Savings',startingBalance:1200,type:'savings'}],
+      transactions:[
+        {id:'tx-1',accountId:'acct-checking',date:'2026-06-01',description:'Salary',category:'Income',amount:3100,cleared:true},
+        {id:'tx-2',accountId:'acct-checking',date:'2026-06-02',description:'Mortgage Payment',category:'Mortgage',amount:-1314.78,cleared:true},
+        {id:'tx-3',accountId:'acct-checking',date:'2026-06-03',description:'Grocery Budget',category:'Groceries',amount:-275.42,cleared:false},
+        {id:'tx-4',accountId:'acct-checking',date:'2026-06-05',description:'Daycare',category:'Childcare',amount:-620.00,cleared:false}
+      ],
+      budgetCategories:[
+        {id:'bc-1',name:'Groceries',monthlyBudget:800},{id:'bc-2',name:'Mortgage',monthlyBudget:1314.78},{id:'bc-3',name:'Childcare',monthlyBudget:620},{id:'bc-4',name:'Utilities',monthlyBudget:420},{id:'bc-5',name:'Donations',monthlyBudget:350}
+      ],
+      debts:[
+        {id:'debt-1',name:'Mortgage',balance:281089,payment:1314.78,rate:2.99},
+        {id:'debt-2',name:'Car Loan',balance:15600,payment:445,rate:5.9}
+      ],
+      priceCatalog:[
+        {id:'price-1',store:'Walmart',storeZip:'79015',name:'Milk',brand:'Great Value',size:'1 gallon',category:'Dairy',price:3.52,lastChecked:today(),notes:'Manual local estimate'},
+        {id:'price-2',store:'Walmart',storeZip:'79015',name:'Eggs',brand:'Great Value',size:'12 count',category:'Dairy',price:3.88,lastChecked:today(),notes:'Manual local estimate'},
+        {id:'price-3',store:"Sam's",storeZip:'79121',name:'Paper Towels',brand:'Member\'s Mark',size:'15 rolls',category:'Household',price:22.98,lastChecked:today(),notes:'Manual local estimate'},
+        {id:'price-4',store:'Walmart',storeZip:'79015',name:'Pencils',brand:'Ticonderoga',size:'24 count',category:'School',price:5.97,lastChecked:today(),notes:'School shopping estimate'}
+      ],
+      shoppingLists:[
+        {id:'list-1',name:'Grocery List',type:'grocery',sharedWith:['user-owner','user-finance','user-household'],items:[
+          {id:'item-1',name:'Milk',quantity:2,estimatedPrice:3.52,checked:false,store:'Walmart',category:'Dairy',notes:'Great Value 1 gallon',source:'price_catalog'},
+          {id:'item-2',name:'Eggs',quantity:1,estimatedPrice:3.88,checked:false,store:'Walmart',category:'Dairy',notes:'12 count',source:'price_catalog'}
+        ]},
+        {id:'list-2',name:"Sam's Club Run",type:'warehouse',sharedWith:['user-owner','user-household'],items:[
+          {id:'item-3',name:'Paper Towels',quantity:1,estimatedPrice:22.98,checked:false,store:"Sam's",category:'Household',notes:'Member\'s Mark',source:'price_catalog'}
+        ]},
+        {id:'list-3',name:'School Shopping',type:'school',sharedWith:['user-owner','user-household'],items:[
+          {id:'item-4',name:'Pencils',quantity:2,estimatedPrice:5.97,checked:false,store:'Walmart',category:'School',notes:'24 count',source:'price_catalog'}
+        ]}
+      ],
+      statementImports:[]
+    });
+    let state = { data: loadData(), page:'dashboard' };
+    function normalize(d){
+      const base = defaultData(); d = d && typeof d==='object' ? d : base;
+      const users = Array.isArray(d.users) && d.users.length ? d.users : base.users;
+      return {
+        users,
+        currentUserId: users.some(u=>u.id===d.currentUserId) ? d.currentUserId : users[0].id,
+        accounts:Array.isArray(d.accounts)?d.accounts:base.accounts,
+        transactions:Array.isArray(d.transactions)?d.transactions:base.transactions,
+        budgetCategories:Array.isArray(d.budgetCategories)?d.budgetCategories:base.budgetCategories,
+        debts:Array.isArray(d.debts)?d.debts:base.debts,
+        priceCatalog:Array.isArray(d.priceCatalog)?d.priceCatalog:base.priceCatalog,
+        shoppingLists:Array.isArray(d.shoppingLists)?d.shoppingLists:base.shoppingLists,
+        statementImports:Array.isArray(d.statementImports)?d.statementImports:[]
+      };
+    }
+    function loadData(){try{return normalize(JSON.parse(localStorage.getItem(STORAGE_KEY)||'null'));}catch(e){console.warn('HomeLife storage reset',e);return normalize(null)}}
+    function saveData(){localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));}
+    function update(next){state.data = normalize(next); saveData(); render();}
+    function currentUser(){return state.data.users.find(u=>u.id===state.data.currentUserId) || state.data.users[0];}
+    function canViewFinance(){return financeRoles.includes(currentUser().role);}
+    function navItems(){return [
+      ['dashboard','🏠','Dashboard',true],['register','💳','Register',canViewFinance()],['budget','📊','Budget',canViewFinance()],['debt','🏦','Debt',canViewFinance()],['reconcile','🔎','Statement Import',canViewFinance()],['prices','🏷️','Price Catalog',true],['shopping','🛒','Shopping Lists',true],['settings','⚙️','Settings',true]
+    ];}
+    function accountBalance(a){return (Number(a.startingBalance)||0)+state.data.transactions.filter(t=>t.accountId===a.id).reduce((s,t)=>s+(Number(t.amount)||0),0)}
+    function listEstimatedTotal(l){return (l.items||[]).reduce((s,i)=>s+(Number(i.quantity)||0)*(Number(i.estimatedPrice)||0),0)}
+    function listActualTotal(l){return (l.items||[]).reduce((s,i)=>s+(Number(i.quantity)||0)*(Number(i.actualPrice ?? i.estimatedPrice)||0),0)}
+    function setPage(id){state.page=id;render();}
+    function selectUser(id){update({...state.data,currentUserId:id});}
+    function render(){
+      const user=currentUser(); if(!navItems().some(n=>n[0]===state.page && n[3])) state.page='dashboard';
+      const nav = navItems().filter(n=>n[3]).map(n=>`<button class="${state.page===n[0]?'active':''}" data-page="${n[0]}"><span>${n[1]}</span> ${n[2]}</button>`).join('');
+      const title = navItems().find(n=>n[0]===state.page)?.[2] || 'Dashboard';
+      app.innerHTML = `<div class="app-shell"><aside class="sidebar"><div class="brand-card"><div class="brand-mark">HL</div><div><h1>HomeLife</h1><p>Budget, shop, and plan your household in one place.</p></div></div><nav>${nav}</nav>${!canViewFinance()?'<div class="privacy-note">🔒 Register, budget, debt, and statements are hidden for this role.</div>':''}</aside><main><header class="topbar"><div><h2>${escapeHtml(title)}</h2><p>Signed in as <strong>${escapeHtml(user.name)}</strong> · ${escapeHtml(user.role.replace('_',' '))}</p></div><select id="userSelect">${state.data.users.map(u=>`<option value="${u.id}" ${u.id===state.data.currentUserId?'selected':''}>${escapeHtml(u.name)} — ${escapeHtml(u.role.replace('_',' '))}</option>`).join('')}</select></header><div id="content">${pageHtml()}</div><div class="footer-note">HomeLife stores demo data in this browser. Statement CSV files are parsed locally and raw files are not uploaded by this static version.</div></main><div class="version">HomeLife v${VERSION}</div></div>`;
+      app.querySelectorAll('[data-page]').forEach(btn=>btn.addEventListener('click',()=>setPage(btn.dataset.page)));
+      app.querySelector('#userSelect')?.addEventListener('change',e=>selectUser(e.target.value));
+      bindPage();
+    }
+    function pageHtml(){
+      if(state.page==='register'&&!canViewFinance()) return hiddenHtml();
+      if(state.page==='budget'&&!canViewFinance()) return hiddenHtml();
+      if(state.page==='debt'&&!canViewFinance()) return hiddenHtml();
+      if(state.page==='reconcile'&&!canViewFinance()) return hiddenHtml();
+      return ({dashboard:dashboardHtml,register:registerHtml,budget:budgetHtml,debt:debtHtml,reconcile:reconcileHtml,prices:pricesHtml,shopping:shoppingHtml,settings:settingsHtml}[state.page]||dashboardHtml)();
+    }
+    function hiddenHtml(){return `<div class="card"><h3>Private area</h3><p class="muted">This section is hidden for the selected profile.</p></div>`}
+    function dashboardHtml(){
+      const accountTotal = state.data.accounts.reduce((s,a)=>s+accountBalance(a),0);
+      const shoppingTotal = state.data.shoppingLists.reduce((s,l)=>s+listEstimatedTotal(l),0);
+      const remaining = state.data.shoppingLists.reduce((s,l)=>s+(l.items||[]).filter(i=>!i.checked).length,0);
+      return `<div class="banner"><strong>Deployment fixed:</strong> This version runs as a static GitHub Pages app with no npm build required for deployment.</div><section class="grid two">${canViewFinance()?card('Household Balance',money(accountTotal),'Across starter accounts'):card('Finance Hidden','Private','Your role can use shared lists and prices only.')} ${card('Shopping Estimate',money(shoppingTotal),`${remaining} item(s) still needed`)} ${card('Price Catalog',String(state.data.priceCatalog.length),'Manual local price records; Walmart lookup can be added through a backend later')} ${canViewFinance()?card('Statement Review',String(state.data.statementImports.length),'Sanitized imported rows only'):''} ${canViewFinance()?card('Monthly Budget',money(state.data.budgetCategories.reduce((s,c)=>s+(+c.monthlyBudget||0),0)),'Starter budget categories'):''} ${canViewFinance()?card('Debt Balance',money(state.data.debts.reduce((s,d)=>s+(+d.balance||0),0)),'Hidden from list-only users'):''}</section>`;
+    }
+    function card(t,v,d){return `<div class="card"><p class="label">${escapeHtml(t)}</p><h3 class="value">${escapeHtml(v)}</h3><p>${escapeHtml(d)}</p></div>`}
+    function registerHtml(){return `<div class="card wide"><div class="split"><div><h3>Check Register</h3><p class="muted">Private finance area. Restricted profiles cannot see this menu or data.</p></div><button id="addTx">Add Transaction</button></div><table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th><th>Cleared</th></tr></thead><tbody>${state.data.transactions.map(t=>`<tr><td>${escapeHtml(t.date)}</td><td>${escapeHtml(t.description)}</td><td>${escapeHtml(t.category)}</td><td class="${t.amount<0?'negative':'positive'}">${money(t.amount)}</td><td><input type="checkbox" data-clear="${t.id}" ${t.cleared?'checked':''}></td></tr>`).join('')}</tbody></table></div>`}
+    function budgetHtml(){return `<div class="card wide"><h3>Budget</h3><table><thead><tr><th>Category</th><th>Monthly Budget</th><th>Actual</th><th>Remaining</th></tr></thead><tbody>${state.data.budgetCategories.map(c=>{const actual=Math.abs(state.data.transactions.filter(t=>t.category===c.name&&t.amount<0).reduce((s,t)=>s+(+t.amount||0),0));return `<tr><td>${escapeHtml(c.name)}</td><td>${money(c.monthlyBudget)}</td><td>${money(actual)}</td><td>${money(c.monthlyBudget-actual)}</td></tr>`}).join('')}</tbody></table></div>`}
+    function debtHtml(){return `<div class="card wide"><h3>Debt Tracker</h3><table><thead><tr><th>Debt</th><th>Balance</th><th>Payment</th><th>Rate</th></tr></thead><tbody>${state.data.debts.map(d=>`<tr><td>${escapeHtml(d.name)}</td><td>${money(d.balance)}</td><td>${money(d.payment)}</td><td>${escapeHtml(d.rate)}%</td></tr>`).join('')}</tbody></table></div>`}
+    function pricesHtml(){
+      return `<div class="card wide"><div class="split"><div><h3>Local Price Catalog</h3><p class="muted">Use this for close grocery projections. Later, an approved Walmart price lookup can run through Supabase Edge Functions so the browser does not scrape Walmart.</p></div><div class="settings-actions"><button id="addPrice">Add Price</button><button id="exportPrices">Export CSV</button></div></div><input class="full-input" id="priceSearch" placeholder="Search Walmart milk, eggs, Sam's, school supplies..."/><div id="priceTable">${priceTableHtml('')}</div></div>`;
+    }
+    function priceTableHtml(q){const rows=state.data.priceCatalog.filter(p=>`${p.name} ${p.brand||''} ${p.store} ${p.category||''}`.toLowerCase().includes((q||'').toLowerCase()));return `<table><thead><tr><th>Store</th><th>Item</th><th>Brand/Size</th><th>Category</th><th>Price</th><th>Checked</th><th></th></tr></thead><tbody>${rows.map(p=>`<tr><td>${escapeHtml(p.store)}<br><span class="small">${escapeHtml(p.storeZip||'')}</span></td><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.brand||'')} ${p.size?'· '+escapeHtml(p.size):''}</td><td>${escapeHtml(p.category||'')}</td><td>${money(p.price)}</td><td>${escapeHtml(p.lastChecked||'')}</td><td><button class="danger" data-remove-price="${p.id}">Remove</button></td></tr>`).join('')}</tbody></table>`}
+    function shoppingHtml(){const user=currentUser();const lists=state.data.shoppingLists.filter(l=>user.role==='owner'||(l.sharedWith||[]).includes(user.id));return `<div class="actions"><button id="addList" class="primary">Add Shopping List</button></div>${lists.length?`<div class="grid two">${lists.map(l=>`<div class="card"><div class="list-header"><div><p class="label">${escapeHtml(l.type)}</p><h3>${escapeHtml(l.name)}</h3></div><button data-add-item="${l.id}">Add Item</button></div><div class="totals"><span>Estimated: <strong>${money(listEstimatedTotal(l))}</strong></span><span>Actual/Projected: <strong>${money(listActualTotal(l))}</strong></span></div><ul class="shopping-list">${(l.items||[]).map(i=>`<li class="${i.checked?'checked':''}"><label><input type="checkbox" data-toggle-item="${l.id}|${i.id}" ${i.checked?'checked':''}> <span>${escapeHtml(i.name)}</span></label><small>${escapeHtml(i.quantity)} × ${money(i.estimatedPrice)} ${i.store?'· '+escapeHtml(i.store):''} ${i.notes?'· '+escapeHtml(i.notes):''}</small></li>`).join('')||'<li class="empty">No items yet.</li>'}</ul></div>`).join('')}</div>`:'<div class="empty">No shopping lists shared with this profile.</div>'}`}
+    function reconcileHtml(){return `<div class="card wide"><h3>Bank Statement Import & Reconciliation</h3><p class="muted">Privacy design: the raw bank file is read in your browser only. HomeLife stores only sanitized rows: date, cleaned description, amount, and match status. Account/routing numbers are not needed.</p><div class="settings-actions"><label class="button-like">Load CSV Statement<input id="statementFile" type="file" accept=".csv,text/csv" hidden></label><button id="exportStmt">Export Sanitized CSV</button><button class="danger" id="clearStmt">Clear Imported Rows</button></div><table><thead><tr><th>Date</th><th>Sanitized Description</th><th>Amount</th><th>Status</th></tr></thead><tbody>${state.data.statementImports.map(r=>`<tr><td>${escapeHtml(r.date)}</td><td>${escapeHtml(r.description)}</td><td class="${r.amount<0?'negative':'positive'}">${money(r.amount)}</td><td><span class="pill ${escapeHtml(r.matchStatus)}">${escapeHtml((r.matchStatus||'').replace(/_/g,' '))}</span></td></tr>`).join('')}</tbody></table></div>`}
+    function settingsHtml(){return `<div class="card wide"><h3>Settings & Permissions</h3><p class="muted">Demo roles hide finance pages in the interface now. When Supabase auth is fully connected, the same restrictions should be enforced with Row Level Security policies.</p><table><thead><tr><th>User</th><th>Role</th><th>Register/Budget/Debt</th><th>Statement Import</th><th>Shopping/Prices</th></tr></thead><tbody>${state.data.users.map(u=>`<tr><td>${escapeHtml(u.name)}</td><td>${escapeHtml(u.role.replace('_',' '))}</td><td>${financeRoles.includes(u.role)?'Visible':'Hidden'}</td><td>${financeRoles.includes(u.role)?'Visible':'Hidden'}</td><td>Visible/shared</td></tr>`).join('')}</tbody></table><div class="settings-actions"><button id="exportJson">Export JSON Backup</button><label class="button-like">Import JSON Backup<input id="importJson" type="file" accept="application/json" hidden></label><button class="danger" id="resetData">Reset Demo Data</button></div><div class="banner"><strong>Supabase project configured for future backend:</strong> https://mbxvdynhcqjjudejuwwb.supabase.co. This static deploy does not send statement files to Supabase.</div></div>`}
+    function bindPage(){
+      if(state.page==='register'){app.querySelectorAll('[data-clear]').forEach(el=>el.addEventListener('change',()=>{update({...state.data,transactions:state.data.transactions.map(t=>t.id===el.dataset.clear?{...t,cleared:el.checked}:t)})}));app.querySelector('#addTx')?.addEventListener('click',addTransaction)}
+      if(state.page==='prices'){app.querySelector('#addPrice')?.addEventListener('click',addPrice);app.querySelector('#exportPrices')?.addEventListener('click',exportPrices);const search=app.querySelector('#priceSearch');search?.addEventListener('input',()=>{app.querySelector('#priceTable').innerHTML=priceTableHtml(search.value);bindPage()});app.querySelectorAll('[data-remove-price]').forEach(b=>b.addEventListener('click',()=>removePrice(b.dataset.removePrice)))}
+      if(state.page==='shopping'){app.querySelector('#addList')?.addEventListener('click',addList);app.querySelectorAll('[data-add-item]').forEach(b=>b.addEventListener('click',()=>addShoppingItem(b.dataset.addItem)));app.querySelectorAll('[data-toggle-item]').forEach(cb=>cb.addEventListener('change',()=>{const [lid,iid]=cb.dataset.toggleItem.split('|');update({...state.data,shoppingLists:state.data.shoppingLists.map(l=>l.id===lid?{...l,items:(l.items||[]).map(i=>i.id===iid?{...i,checked:cb.checked}:i)}:l)})}))}
+      if(state.page==='reconcile'){app.querySelector('#statementFile')?.addEventListener('change',handleStatementFile);app.querySelector('#exportStmt')?.addEventListener('click',exportStatement);app.querySelector('#clearStmt')?.addEventListener('click',()=>update({...state.data,statementImports:[]}))}
+      if(state.page==='settings'){app.querySelector('#exportJson')?.addEventListener('click',()=>downloadText('homelife-backup.json',JSON.stringify(state.data,null,2)));app.querySelector('#importJson')?.addEventListener('change',importJson);app.querySelector('#resetData')?.addEventListener('click',()=>{if(confirm('Reset local HomeLife demo data?')){localStorage.removeItem(STORAGE_KEY);state.data=loadData();render();}})}
+    }
+    function addTransaction(){const date=prompt('Date?',today()); if(!date)return; const description=prompt('Description?','New transaction'); if(!description)return; const category=prompt('Category?','Groceries')||'Uncategorized'; const amount=Number(prompt('Amount? Use negative for payments.','0')||0); const accountId=state.data.accounts[0]?.id||'acct-checking'; update({...state.data,transactions:[...state.data.transactions,{id:uid('tx'),accountId,date,description,category,amount,cleared:false}]});}
+    function addPrice(){const name=prompt('Product name? Example: Milk'); if(!name)return; const store=prompt('Store? Walmart, Sam\'s, Target, Other','Walmart')||'Walmart'; const price=Number(prompt('Price?','0')||0); const item={id:uid('price'),store,storeZip:prompt('ZIP or store area?','79015')||'',name,brand:prompt('Brand?','')||'',size:prompt('Size?','')||'',category:prompt('Category?','')||'',price:Number.isFinite(price)?price:0,lastChecked:today(),notes:'Manual entry'}; update({...state.data,priceCatalog:[...state.data.priceCatalog,item]});}
+    function removePrice(id){if(confirm('Remove this price record?'))update({...state.data,priceCatalog:state.data.priceCatalog.filter(p=>p.id!==id)});}
+    function exportPrices(){const rows=[['store','zip','name','brand','size','category','price','lastChecked','notes'],...state.data.priceCatalog.map(p=>[p.store,p.storeZip||'',p.name,p.brand||'',p.size||'',p.category||'',String(p.price),p.lastChecked||'',p.notes||''])];downloadCsv('homelife-price-catalog.csv',rows)}
+    function addList(){const name=prompt('List name? Example: School Shopping'); if(!name)return; const type=prompt('Type? grocery, warehouse, school, custom','custom')||'custom'; update({...state.data,shoppingLists:[...state.data.shoppingLists,{id:uid('list'),name,type,sharedWith:state.data.users.map(u=>u.id),items:[]}]});}
+    function addShoppingItem(listId){const search=prompt('Item name? This will try to use your price catalog.'); if(!search)return; const found=state.data.priceCatalog.find(p=>p.name.toLowerCase().includes(search.toLowerCase())||search.toLowerCase().includes(p.name.toLowerCase())); const price=found?found.price:Number(prompt('Estimated item price?','0')||0); const qty=Number(prompt('Quantity?','1')||1); const item={id:uid('item'),name:found?.name||search,quantity:Number.isFinite(qty)?qty:1,estimatedPrice:Number.isFinite(price)?price:0,checked:false,store:found?.store||'',category:found?.category||'',notes:found?[found.brand,found.size].filter(Boolean).join(' '):'',source:found?'price_catalog':'manual'}; update({...state.data,shoppingLists:state.data.shoppingLists.map(l=>l.id===listId?{...l,items:[...(l.items||[]),item]}:l)});}
+    function parseCsv(text){const rows=[];let row=[],cell='',quoted=false;for(let i=0;i<text.length;i++){const ch=text[i],next=text[i+1];if(ch==='"'&&quoted&&next==='"'){cell+='"';i++;}else if(ch==='"'){quoted=!quoted;}else if(ch===','&&!quoted){row.push(cell);cell='';}else if((ch==='\n'||ch==='\r')&&!quoted){if(ch==='\r'&&next==='\n')i++;row.push(cell);if(row.some(c=>c.trim()))rows.push(row);row=[];cell='';}else cell+=ch;}row.push(cell);if(row.some(c=>c.trim()))rows.push(row);return rows;}
+    function parseAmount(v){v=String(v||'').replace(/[$,]/g,'').trim();const neg=/\(.+\)/.test(v);const n=Number(v.replace(/[()]/g,''));return neg?-Math.abs(n):n;}
+    function sanitizeDescription(d){return String(d||'Imported transaction').replace(/\b\d{4,}\b/g,'####').replace(/acct\s*#?\s*\w+/ig,'acct ####').slice(0,90);}
+    function closeDate(a,b){const da=new Date(a).getTime(),db=new Date(b).getTime();if(!Number.isFinite(da)||!Number.isFinite(db))return false;return Math.abs((da-db)/86400000)<=3;}
+    function findMatch(row){return state.data.transactions.find(t=>Math.abs((+t.amount)-row.amount)<.01&&closeDate(t.date,row.date))||state.data.transactions.find(t=>Math.abs((+t.amount)-row.amount)<.01)}
+    function handleStatementFile(e){const file=e.target.files?.[0]; if(!file)return; file.text().then(text=>{const parsed=parseCsv(text);if(parsed.length<2){alert('No rows found. Use a CSV export from your bank.');return} const header=parsed[0].map(h=>h.toLowerCase().trim());const dateIdx=header.findIndex(h=>h.includes('date'));const descIdx=header.findIndex(h=>h.includes('description')||h.includes('memo')||h.includes('payee'));const amountIdx=header.findIndex(h=>h.includes('amount'));const debitIdx=header.findIndex(h=>h.includes('debit')||h.includes('withdrawal'));const creditIdx=header.findIndex(h=>h.includes('credit')||h.includes('deposit'));const rows=parsed.slice(1).map(cols=>{const debit=debitIdx>=0?parseAmount(cols[debitIdx]):0;const credit=creditIdx>=0?parseAmount(cols[creditIdx]):0;const amount=amountIdx>=0?parseAmount(cols[amountIdx]):(credit?Math.abs(credit):-Math.abs(debit));const row={id:uid('stmt'),date:(cols[dateIdx]||'').trim(),description:sanitizeDescription(cols[descIdx]||'Imported transaction'),amount,type:amount>=0?'credit':'debit',matchStatus:'missing_from_register'};const match=findMatch(row);return match?{...row,matchedTransactionId:match.id,matchStatus:closeDate(row.date,match.date)?'matched':'possible'}:row;}).filter(r=>r.date&&Number.isFinite(r.amount));update({...state.data,statementImports:rows});});}
+    function exportStatement(){const rows=[['date','description','amount','type','matchStatus'],...state.data.statementImports.map(r=>[r.date,r.description,String(r.amount),r.type,r.matchStatus])];downloadCsv('homelife-sanitized-statement.csv',rows)}
+    function importJson(e){const file=e.target.files?.[0];if(!file)return;file.text().then(text=>{try{update(JSON.parse(text))}catch(err){alert('Invalid JSON backup file.')}})}
+    function downloadCsv(name,rows){downloadText(name,rows.map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n'))}
+    function downloadText(name,text){const blob=new Blob([text],{type:'text/plain'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();URL.revokeObjectURL(url)}
+    render();
+  })();
+  </script>
+</body>
 </html>

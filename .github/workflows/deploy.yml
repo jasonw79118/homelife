@@ -1,4 +1,4 @@
-name: Deploy HomeLife to GitHub Pages
+name: Deploy HomeLife static site
 
 on:
   push:
@@ -27,7 +27,7 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload prebuilt HomeLife site
+      - name: Upload static site
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs
