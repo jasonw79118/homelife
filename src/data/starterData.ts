@@ -27,26 +27,22 @@ export const starterData: AppData = {
     { id: 'd1', name: 'Mortgage', balance: 281089, payment: 1314.78, rate: 2.99 },
     { id: 'd2', name: 'Car Loan', balance: 9500, payment: 425, rate: 5.75 }
   ],
+  priceCatalog: [
+    { id: 'p1', store: 'Walmart', storeZip: '79015', name: 'Milk', brand: 'Great Value', size: '1 gal', category: 'Dairy', price: 3.52, lastChecked: '2026-06-11', notes: 'Manual starter estimate' },
+    { id: 'p2', store: 'Walmart', storeZip: '79015', name: 'Eggs', brand: 'Great Value', size: '18 ct', category: 'Dairy', price: 4.36, lastChecked: '2026-06-11', notes: 'Manual starter estimate' },
+    { id: 'p3', store: 'Walmart', storeZip: '79015', name: 'Chicken breast', brand: 'Freshness Guaranteed', size: 'per lb', category: 'Meat', price: 3.48, lastChecked: '2026-06-11', notes: 'Use quantity as lbs' },
+    { id: 'p4', store: "Sam's", storeZip: '79119', name: 'Paper towels', brand: "Member's Mark", size: '15 rolls', category: 'Household', price: 19.98, lastChecked: '2026-06-11' }
+  ],
   shoppingLists: [
     {
-      id: 'l1',
-      name: 'Weekly Groceries',
-      type: 'grocery',
-      sharedWith: ['u1', 'u2', 'u3'],
+      id: 'l1', name: 'Weekly Groceries', type: 'grocery', sharedWith: ['u1', 'u2', 'u3'],
       items: [
-        { id: 'i1', name: 'Milk', quantity: 2, estimatedPrice: 3.5, checked: false, store: 'Walmart', category: 'Dairy' },
-        { id: 'i2', name: 'Eggs', quantity: 1, estimatedPrice: 4.25, checked: false, store: 'Walmart', category: 'Dairy' },
-        { id: 'i3', name: 'Chicken breast', quantity: 3, estimatedPrice: 5.99, checked: true, store: 'Walmart', category: 'Meat' }
+        { id: 'i1', name: 'Milk', quantity: 2, estimatedPrice: 3.52, checked: false, store: 'Walmart', category: 'Dairy', source: 'price_catalog' },
+        { id: 'i2', name: 'Eggs', quantity: 1, estimatedPrice: 4.36, checked: false, store: 'Walmart', category: 'Dairy', source: 'price_catalog' },
+        { id: 'i3', name: 'Chicken breast', quantity: 3, estimatedPrice: 3.48, checked: true, store: 'Walmart', category: 'Meat', source: 'price_catalog' }
       ]
     },
-    {
-      id: 'l2',
-      name: "Sam's Run",
-      type: 'sams',
-      sharedWith: ['u1', 'u3'],
-      items: [
-        { id: 'i4', name: 'Paper towels', quantity: 1, estimatedPrice: 18.98, checked: false, store: "Sam's", category: 'Household' }
-      ]
-    }
-  ]
+    { id: 'l2', name: "Sam's Run", type: 'sams', sharedWith: ['u1', 'u3'], items: [{ id: 'i4', name: 'Paper towels', quantity: 1, estimatedPrice: 19.98, checked: false, store: "Sam's", category: 'Household', source: 'price_catalog' }] }
+  ],
+  statementImports: []
 };

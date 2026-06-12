@@ -1,37 +1,16 @@
-HomeLife starter package
-Version: 1.0.0
-Tagline: Budget, shop, and plan your household in one place.
+HomeLife starter update
+Version: 1.1.0
 
-What is included:
-- React + TypeScript + Vite app
-- GitHub Pages base path set to /homelife/
-- GitHub Actions Pages deployment workflow
-- Demo role switcher
-- Dashboard
-- Check register
-- Budget page
-- Debt tracker
-- Shared shopping lists
-- Grocery/Sam's/school/custom list support
-- Shopping list estimated totals
-- In-store check-off mode
-- Role-based hiding of financial pages
-- JSON backup export/import
+Added:
+- Local Price Catalog page for Walmart/Sam's/other price estimates.
+- Shopping list Add Item now checks the price catalog and pulls estimated price, store, category, and notes.
+- Bank Statement Import page for CSV files.
+- Statement import is designed to parse locally in the browser and store sanitized rows only.
+- Reconciliation status: matched, possible, or missing from register.
+- Finance privacy: Register, Budget, Debt, and Statement Import are hidden from household_member and child demo roles.
+- .env.example added for Supabase setup.
 
-Important security note:
-This starter does not contain real authentication yet. It uses demo users/roles stored locally in the browser.
-Do not store real sensitive financial information in the GitHub-hosted version until Supabase/Firebase Auth and database permissions are added.
-
-Recommended GitHub setup:
-1. Create a GitHub repository named homelife.
-2. Upload/push the files from this ZIP.
-3. Go to Settings > Pages.
-4. Source: GitHub Actions.
-5. Push to main and let the deploy workflow run.
-
-Local run:
-npm install
-npm run dev
-
-Build test:
-npm run build
+Important:
+- This ZIP is packaged with files at the root level, not inside an extra homelife/ folder.
+- Walmart live price lookup should be added through an approved API or Supabase Edge Function later. Do not scrape Walmart pages directly from GitHub Pages.
+- Front-end hiding is in place now, but real protection requires Supabase Auth plus Row Level Security before storing sensitive financial data online.
