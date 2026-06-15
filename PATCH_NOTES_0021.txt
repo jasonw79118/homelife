@@ -1,0 +1,13 @@
+HomeLife v2026.06.12.0021
+
+Changes:
+- Fixed the visible version badge so the site shows v2026.06.12.0021 instead of the old hardcoded badge.
+- Added Edit on Recipe Builder ingredients so the name, quantity, unit, pantry-covered status, notes, and especially total ingredient price can be changed later.
+- Ingredient edit uses the Price Catalog first, then lets the user confirm or edit the suggested total cost.
+- Added automatic cloud pull checks when the app gets focus, becomes visible, and about every 45 seconds when auto-sync is on.
+- Cloud saves now identify the device instead of only the current user, helping cross-device sync status.
+- Updated cloud instructions to make clear that each device must enter the same family code and same family cloud password with auto-sync on.
+
+Notes:
+- Existing planned meals keep their copied ingredient prices until refreshed or recreated from the recipe.
+- If a second phone/computer is open, leave it on HomeLife or refocus the browser tab to trigger automatic pull, or use Settings > Pull Latest.

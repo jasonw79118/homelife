@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { DEFAULT_DATA, SESSION_KEY, clearActiveHouseholdCode, createHousehold, getActiveHouseholdCode, listHouseholds, loadData, mergeDefaultPriceCatalog, normalizeHouseholdCode, resetData, saveData, setActiveHouseholdCode } from './services/storage';
@@ -258,16 +258,84 @@ function normalizeData(data: Partial<AppData> | null | undefined): AppData {
   };
 }
 
+const INGREDIENT_TOKEN_STOPWORDS = new Set([
+  'fresh', 'frozen', 'canned', 'can', 'cans', 'jar', 'jars', 'package', 'packages', 'pkg', 'bag', 'bags', 'box', 'boxes',
+  'large', 'small', 'medium', 'whole', 'chopped', 'diced', 'sliced', 'shredded', 'minced', 'crushed', 'optional',
+  'divided', 'drained', 'rinsed', 'cooked', 'uncooked', 'boneless', 'skinless', 'lean', 'extra', 'about', 'of', 'and', 'or', 'the'
+]);
+
+function ingredientSearchTokens(value: string): string[] {
+  return clean(value).toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .map((word) => word.replace(/s$/i, ''))
+    .filter((word) => word.length > 2 && !INGREDIENT_TOKEN_STOPWORDS.has(word));
+}
+
+function ingredientTokenScore(needle: string, candidate: string): number {
+  const left = ingredientSearchTokens(needle);
+  const right = ingredientSearchTokens(candidate);
+  if (!left.length || !right.length) return 0;
+  const rightSet = new Set(right);
+  let matched = 0;
+  left.forEach((token) => { if (rightSet.has(token)) matched += 1; });
+  const coverage = matched / Math.max(1, left.length);
+  const bonus = right.some((token) => left.includes(token)) ? 1 : 0;
+  return matched * 2 + coverage + bonus;
+}
+
+function bestCatalogMatch(name: string, catalog: PriceCatalogItem[]): PriceCatalogItem | undefined {
+  const needle = clean(name).toLowerCase();
+  if (!needle) return undefined;
+  const exact = catalog.find((p) => p.name.toLowerCase() === needle);
+  if (exact) return exact;
+  const contains = catalog.find((p) => p.name.toLowerCase().includes(needle) || needle.includes(p.name.toLowerCase()));
+  if (contains) return contains;
+  const scored = catalog
+    .map((item) => ({ item, score: Math.max(ingredientTokenScore(name, item.name), ingredientTokenScore(name, `${item.brand ?? ''} ${item.name} ${item.size ?? ''}`)) }))
+    .filter((entry) => entry.score >= 3)
+    .sort((a, b) => b.score - a.score);
+  return scored[0]?.item;
+}
+
+function bestPantryMatch(name: string, pantryItems: PantryItem[]): PantryItem | undefined {
+  const needle = clean(name).toLowerCase();
+  if (!needle) return undefined;
+  const exact = pantryItems.find((p) => p.name.toLowerCase() === needle);
+  if (exact) return exact;
+  const contains = pantryItems.find((p) => p.name.toLowerCase().includes(needle) || needle.includes(p.name.toLowerCase()));
+  if (contains) return contains;
+  const scored = pantryItems
+    .map((item) => ({ item, score: ingredientTokenScore(name, item.name) }))
+    .filter((entry) => entry.score >= 3)
+    .sort((a, b) => b.score - a.score);
+  return scored[0]?.item;
+}
+
 function findCatalogMatch(name: string, catalog: PriceCatalogItem[]) {
-  const needle = name.toLowerCase();
-  return catalog.find((p) => p.name.toLowerCase() === needle)
-    ?? catalog.find((p) => p.name.toLowerCase().includes(needle) || needle.includes(p.name.toLowerCase()));
+  return bestCatalogMatch(name, catalog);
 }
 
 function findPantryMatch(name: string, pantryItems: PantryItem[]) {
-  const needle = name.toLowerCase();
-  return pantryItems.find((p) => p.name.toLowerCase() === needle)
-    ?? pantryItems.find((p) => p.name.toLowerCase().includes(needle) || needle.includes(p.name.toLowerCase()));
+  return bestPantryMatch(name, pantryItems);
+}
+
+function estimateIngredientCostFromCatalog(catalog: PriceCatalogItem | undefined, quantity: number, unit: string): number {
+  if (!catalog) return 0;
+  const qty = Math.max(1, safeNumber(quantity, 1));
+  const unitPrice = typeof catalog.unitPrice === 'number' && Number.isFinite(catalog.unitPrice) ? catalog.unitPrice : undefined;
+  if (unitPrice !== undefined && unitPrice > 0) return unitPrice * qty;
+  const requestedUnit = normalizeUnit(unit);
+  const catalogUnit = normalizeUnit(String(catalog.unit ?? 'item'));
+  const discreteUnits = new Set(['item', 'can', 'jar', 'package', 'bag', 'box', 'bottle', 'lb', 'oz', 'pound']);
+  if (requestedUnit === catalogUnit || (catalogUnit === 'item' && discreteUnits.has(requestedUnit))) return safeNumber(catalog.price, 0) * qty;
+  return safeNumber(catalog.price, 0);
+}
+
+function catalogPriceLine(catalog: PriceCatalogItem | undefined, quantity: number, unit: string): string {
+  if (!catalog) return 'Catalog price: no match found yet';
+  const estimated = estimateIngredientCostFromCatalog(catalog, quantity, unit);
+  return `Catalog price: ${money(estimated)} from ${catalog.store}${catalog.storeName ? ` (${catalog.storeName})` : ''}${catalog.size ? ` · ${catalog.size}` : ''}`;
 }
 
 function pantryCoversIngredient(ingredientName: string, quantity: number, unit: string, pantryItems: PantryItem[]) {
@@ -285,7 +353,9 @@ function buildIngredientFromParts(data: AppData, name: string, quantity = 1, uni
   const safeQuantity = Math.max(0, safeNumber(quantity, 1));
   const safeUnit = clean(unit, catalog?.unit ?? pantry?.unit ?? 'item');
   const pantryCovered = pantryCoversIngredient(name, safeQuantity, safeUnit, data.pantryItems);
-  const defaultEstimate = estimatedPrice ?? (catalog?.price ?? (pantry?.estimatedUnitPrice ? pantry.estimatedUnitPrice * Math.max(1, safeQuantity) : 0));
+  const catalogEstimate = estimateIngredientCostFromCatalog(catalog, safeQuantity, safeUnit);
+  const pantryEstimate = pantry?.estimatedUnitPrice ? pantry.estimatedUnitPrice * Math.max(1, safeQuantity) : 0;
+  const defaultEstimate = estimatedPrice ?? (catalogEstimate || pantryEstimate || 0);
   return {
     id: uid('ing'),
     name: catalog?.name ?? pantry?.name ?? clean(name, 'Ingredient'),
@@ -482,12 +552,15 @@ function ingredientCandidateScore(data: AppData, item: { name: string; quantity:
   if (!/[aeiou]/i.test(name) && name.length > 4) return -3;
   const words = lower.split(/\s+/).filter(Boolean);
   let score = 0;
-  if (findCatalogMatch(name, data.priceCatalog)) score += 5;
-  if (findPantryMatch(name, data.pantryItems)) score += 5;
+  const catalogMatch = findCatalogMatch(name, data.priceCatalog);
+  const pantryMatch = findPantryMatch(name, data.pantryItems);
+  if (catalogMatch) score += 6;
+  if (pantryMatch) score += 6;
   if (COMMON_INGREDIENT_WORDS.some((word) => lower.includes(word))) score += 4;
   if (normalizeUnit(item.unit) !== 'item') score += 2;
   if (safeNumber(item.quantity, 1) !== 1) score += 1;
   if (words.length <= 5) score += 1;
+  if (!catalogMatch && !pantryMatch && !COMMON_INGREDIENT_WORDS.some((word) => lower.includes(word)) && normalizeUnit(item.unit) === 'item') score -= 2;
   if (words.length > 7 && normalizeUnit(item.unit) === 'item') score -= 3;
   if (/\d/.test(name) && normalizeUnit(item.unit) === 'item') score -= 2;
   return score;
@@ -496,7 +569,7 @@ function ingredientCandidateScore(data: AppData, item: { name: string; quantity:
 function filterLikelyIngredientParts(data: AppData, items: Array<{ name: string; quantity: number; unit: string; estimatedPrice?: number }>) {
   const scored = items.map((item) => ({ item, score: ingredientCandidateScore(data, item) }));
   return scored
-    .filter((entry) => entry.score >= 2)
+    .filter((entry) => entry.score >= 4)
     .sort((a, b) => b.score - a.score)
     .map((entry) => entry.item);
 }
@@ -628,6 +701,17 @@ function formatSyncTime(value?: string): string {
   try { return new Date(value).toLocaleString(); } catch { return value; }
 }
 
+const DEVICE_ID_KEY = 'homelife-device-id-v1';
+
+function getOrCreateDeviceId(): string {
+  if (typeof localStorage === 'undefined') return 'home-device';
+  const existing = localStorage.getItem(DEVICE_ID_KEY);
+  if (existing) return existing;
+  const id = `device-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  localStorage.setItem(DEVICE_ID_KEY, id);
+  return id;
+}
+
 function promptCloudConfig(): boolean {
   const existing = getCloudSyncConfig();
   const passphrase = clean(prompt('Family cloud password/passphrase? This unlocks only this family workspace. HomeLife keeps it in this browser session only; it is not saved to Supabase or local storage.', existing.passphrase));
@@ -674,6 +758,9 @@ function App() {
   const [page, setPage] = useState('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [cloudStatus, setCloudStatus] = useState(cloudSyncSummary());
+  const deviceIdRef = useRef(getOrCreateDeviceId());
+  const lastCloudUpdatedAtRef = useRef<string | undefined>(undefined);
+  const cloudPullBusyRef = useRef(false);
   const sessionUser = session ? data.users.find((u) => u.id === session.userId) : undefined;
   const currentUser = sessionUser ?? data.users.find((u) => u.id === data.currentUserId) ?? data.users[0] ?? { id: 'user-owner', name: 'Owner', role: 'owner' as Role, pin: '' };
   const canViewFinance = Boolean(sessionUser && financeRoles.includes(currentUser.role));
@@ -686,7 +773,8 @@ function App() {
     }
     try {
       setCloudStatus('Saving encrypted workspace to cloud...');
-      const result = await saveCloudHousehold(payload, code, payload.currentUserId, config);
+      const result = await saveCloudHousehold(payload, code, deviceIdRef.current, config);
+      lastCloudUpdatedAtRef.current = result.updatedAt ?? lastCloudUpdatedAtRef.current;
       setCloudStatus(`Cloud synced ${formatSyncTime(result.updatedAt)}`);
       return true;
     } catch (error) {
@@ -711,6 +799,45 @@ function App() {
     persist(next, householdCode);
   }
 
+  async function pullRemoteIfNewer(reason: 'timer' | 'focus' | 'manual' = 'timer'): Promise<boolean> {
+    const config = getCloudSyncConfig();
+    const code = normalizeHouseholdCode(householdCode) || 'DEMO';
+    if (!session || !isCloudSyncReady(config) || cloudPullBusyRef.current) return false;
+    cloudPullBusyRef.current = true;
+    try {
+      const remote = await loadCloudHousehold(code, config);
+      if (!remote?.data) return false;
+      if (!remote.updatedAt || (lastCloudUpdatedAtRef.current && remote.updatedAt <= lastCloudUpdatedAtRef.current)) return false;
+      const normalized = normalizeData({ ...remote.data, householdId: code, inviteCode: code });
+      setData(normalized);
+      saveData(normalized, code);
+      setActiveHouseholdCode(code);
+      lastCloudUpdatedAtRef.current = remote.updatedAt;
+      setCloudStatus(`${reason === 'manual' ? 'Pulled' : 'Auto-pulled'} cloud workspace ${formatSyncTime(remote.updatedAt)}`);
+      return true;
+    } catch (error) {
+      setCloudStatus(`Auto cloud pull failed: ${errorMessage(error)}`);
+      return false;
+    } finally {
+      cloudPullBusyRef.current = false;
+    }
+  }
+
+  useEffect(() => {
+    const config = getCloudSyncConfig();
+    if (!session || !config.autoSync || !isCloudSyncReady(config)) return undefined;
+    const interval = window.setInterval(() => { void pullRemoteIfNewer('timer'); }, 45000);
+    const onFocus = () => { void pullRemoteIfNewer('focus'); };
+    const onVisibility = () => { if (document.visibilityState === 'visible') void pullRemoteIfNewer('focus'); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [session, householdCode]);
+
   async function readCloudOrLocalHousehold(code: string): Promise<AppData> {
     const config = getCloudSyncConfig();
     if (isCloudSyncReady(config)) {
@@ -718,6 +845,7 @@ function App() {
         setCloudStatus('Checking cloud workspace...');
         const remote = await loadCloudHousehold(code, config);
         if (remote?.data) {
+          lastCloudUpdatedAtRef.current = remote.updatedAt ?? lastCloudUpdatedAtRef.current;
           setCloudStatus(`Loaded cloud workspace ${formatSyncTime(remote.updatedAt)}`);
           return normalizeData({ ...remote.data, householdId: code, inviteCode: code });
         }
@@ -796,6 +924,7 @@ function App() {
       if (!remote?.data) { setCloudStatus('No cloud workspace found for this code.'); alert('No cloud workspace found for this family code yet.'); return; }
       const normalized = normalizeData({ ...remote.data, householdId: code, inviteCode: code });
       persist(normalized, code, { cloud: false });
+      lastCloudUpdatedAtRef.current = remote.updatedAt ?? lastCloudUpdatedAtRef.current;
       setCloudStatus(`Pulled cloud workspace ${formatSyncTime(remote.updatedAt)}`);
     } catch (error) {
       setCloudStatus(`Cloud pull failed: ${errorMessage(error)}`);
@@ -848,7 +977,7 @@ function App() {
       </div>
       <nav>{visibleNav.map((n) => { const Icon = n.icon; return <button key={n.id} className={activeNav === n.id ? 'active' : ''} onClick={() => { setPage(n.id); setMobileMenuOpen(false); }}><Icon size={18} /> {n.label}</button>; })}</nav>
       {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this login.</div>}
-      <div className="version-badge">v2026.06.12.0018</div>
+      <div className="version-badge">v2026.06.12.0021</div>
     </aside>
     <main>
       <header className="topbar"><div><h2>{nav.find((n) => n.id === activeNav)?.label ?? 'Dashboard'}</h2><p><strong>{data.householdName ?? 'Household'}</strong> · signed in as <strong>{currentUser.name}</strong> · {roleLabel(currentUser.role)}</p></div><div className="settings-actions"><span className="pill neutral">Code: {householdCode}</span><span className="pill neutral">{cloudStatus}</span><button onClick={signOut}>Switch family/user</button></div></header>
@@ -893,7 +1022,7 @@ function LoginScreen({ data, householdCode, cloudControls, onLoadHousehold, onLo
         <div className="card">
           <p className="label">Sign in</p>
           <h3>Choose a family and user</h3>
-          <p className="muted">Each family code can load from the built-in encrypted Supabase backend after you enter the shared family cloud password on each device. Household details are encrypted before upload, and the password stays on the device for this browser session only.</p><div className="cloud-login-panel"><span className="pill neutral">{cloudControls.status}</span><button onClick={cloudControls.configure}>Cloud Setup</button><button onClick={cloudControls.test}>Test Cloud</button></div>
+          <p className="muted">Each family code can load from the built-in encrypted Supabase backend after you enter the shared family cloud password on each device. With auto-sync on, HomeLife pushes saves and checks for newer cloud changes when the app is opened, focused, and about every 45 seconds. Household details are encrypted before upload, and the password stays on the device for this browser session only.</p><div className="cloud-login-panel"><span className="pill neutral">{cloudControls.status}</span><button onClick={cloudControls.configure}>Cloud Setup</button><button onClick={cloudControls.test}>Test Cloud</button></div>
           <label className="field-label">Family code</label>
           <input className="full-input" value={code} onChange={(event) => setCode(event.target.value)} onBlur={() => loadCode(code)} placeholder="Example: WILLIAMS" />
           <button onClick={() => loadCode(code)}>Load Family</button>
@@ -1151,6 +1280,49 @@ function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) =
     update({ ...data, recipes: data.recipes.map((recipe) => recipe.id === recipeId ? { ...recipe, ingredients: recipe.ingredients.filter((ingredient) => ingredient.id !== ingredientId), updatedAt: new Date().toISOString() } : recipe) });
   }
 
+  function editIngredient(recipeId: string, ingredientId: string) {
+    const recipe = data.recipes.find((item) => item.id === recipeId);
+    const ingredient = recipe?.ingredients.find((item) => item.id === ingredientId);
+    if (!recipe || !ingredient) return;
+    const name = clean(prompt('Ingredient name?', ingredient.name), ingredient.name);
+    if (!name) return;
+    const quantity = Math.max(0, promptNumber(`Quantity needed for ${name}?`, ingredient.quantity));
+    const unit = clean(prompt(`Unit for ${name}?`, ingredient.unit), ingredient.unit);
+    const catalog = findCatalogMatch(name, data.priceCatalog);
+    const catalogEstimate = estimateIngredientCostFromCatalog(catalog, quantity, unit);
+    const pantry = findPantryMatch(name, data.pantryItems);
+    const pantryCoveredBySystem = pantryCoversIngredient(name, quantity, unit, data.pantryItems);
+    const suggestedPrice = catalogEstimate || ingredient.estimatedPrice || 0;
+    const estimatedPrice = Math.max(0, promptNumber(`${catalog ? 'Confirm or edit the catalog price HomeLife found.' : 'No price catalog match was found. Enter or keep the estimated total price for this ingredient.'}
+
+${catalogPriceLine(catalog, quantity, unit)}
+Pantry check: ${pantryCoveredBySystem && pantry ? `${pantry.quantity} ${pantry.unit} ${pantry.name} on hand` : 'not fully covered'}
+
+This is the total recipe cost for ${quantity} ${unit} ${name}.`, suggestedPrice));
+    let pantryCovered = pantryCoveredBySystem;
+    if (pantryCoveredBySystem) {
+      pantryCovered = confirm(`HomeLife found this in the pantry. Keep ${name} marked as pantry-covered? OK = pantry-covered, Cancel = needs grocery list.`);
+    } else if (confirm(`HomeLife does not see enough ${name} in the pantry. Mark it as pantry-covered anyway?`)) {
+      pantryCovered = true;
+    }
+    const rebuilt = buildIngredientFromParts(data, name, quantity || 1, unit, estimatedPrice);
+    const updatedIngredient: MealIngredient = {
+      ...ingredient,
+      ...rebuilt,
+      id: ingredient.id,
+      name,
+      quantity: quantity || 1,
+      unit,
+      estimatedPrice,
+      pantryCovered,
+      pantryItemId: pantryCovered ? (pantry?.id ?? rebuilt.pantryItemId) : undefined,
+      priceCatalogItemId: catalog?.id ?? rebuilt.priceCatalogItemId,
+      store: catalog?.store ?? rebuilt.store,
+      notes: clean(prompt('Ingredient notes? Optional', ingredient.notes ?? rebuilt.notes ?? ''), ingredient.notes ?? rebuilt.notes ?? '') || undefined
+    };
+    update({ ...data, recipes: data.recipes.map((item) => item.id === recipeId ? { ...item, ingredients: item.ingredients.map((candidate) => candidate.id === ingredientId ? updatedIngredient : candidate), updatedAt: new Date().toISOString() } : item) });
+  }
+
   function parseIngredientsFromText(text: string): MealIngredient[] {
     return smartParseIngredientsFromText(data, text).ingredients;
   }
@@ -1163,29 +1335,55 @@ function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) =
 
     if (!likely.length) return [];
 
-    alert(`HomeLife found ${likely.length} possible ingredient(s) from ${sourceLabel}. You will now review each one. If a detected line is nonsense, press Cancel or clear the name to skip it. HomeLife will check your pantry after the amount is confirmed.`);
+    alert(`HomeLife found ${likely.length} possible ingredient(s) from ${sourceLabel}. You will review the name and amount. HomeLife will search the price catalog first, then you can confirm or edit the catalog price. Pantry-covered items will not be added to the grocery list.`);
     const reviewed: MealIngredient[] = [];
 
     for (const candidate of likely) {
+      const startingCatalog = findCatalogMatch(candidate.name, data.priceCatalog);
       const pantryMatch = findPantryMatch(candidate.name, data.pantryItems);
-      const catalogMatch = findCatalogMatch(candidate.name, data.priceCatalog);
-      const defaultCost = safeNumber(candidate.estimatedPrice, catalogMatch?.price ?? 0);
-      const nameInput = prompt(`Keep or correct this detected ingredient?\n\nDetected: ${candidate.quantity} ${candidate.unit} ${candidate.name}\n${pantryMatch ? `Pantry match: ${pantryMatch.quantity} ${pantryMatch.unit} on hand` : 'Pantry match: none found'}\n${catalogMatch ? `Catalog estimate: ${money(catalogMatch.price)} at ${catalogMatch.store}` : 'Catalog estimate: none found'}\n\nPress Cancel or leave blank to skip this line.`, candidate.name);
+      const nameInput = prompt(`Keep or correct this detected ingredient?
+
+Detected: ${candidate.quantity} ${candidate.unit} ${candidate.name}
+${pantryMatch ? `Pantry match: ${pantryMatch.quantity} ${pantryMatch.unit} on hand` : 'Pantry match: none found'}
+${catalogPriceLine(startingCatalog, candidate.quantity, candidate.unit)}
+
+Press Cancel or leave blank to skip this line.`, startingCatalog?.name ?? candidate.name);
       if (nameInput === null) continue;
       const correctedName = clean(nameInput);
       if (!correctedName) continue;
 
-      const starter = buildIngredientFromParts(data, correctedName, candidate.quantity, candidate.unit, defaultCost);
+      const starter = buildIngredientFromParts(data, correctedName, candidate.quantity, candidate.unit);
       const quantity = promptNumber(`How much ${correctedName} is needed for this recipe?`, starter.quantity);
       const unit = clean(prompt(`Unit for ${correctedName}? Example: lb, cup, can, package, tsp`, starter.unit), starter.unit);
-      const cost = promptNumber(`Estimated total cost if ${correctedName} must be bought now?\n\nUse the catalog/default estimate, or enter 0 if you do not want to count a cost. Pantry-covered items will not be pushed to the grocery list.`, starter.estimatedPrice);
-      const finalIngredient = buildIngredientFromParts(data, correctedName, quantity, unit, cost);
+      const catalogMatch = findCatalogMatch(correctedName, data.priceCatalog);
+      const preliminary = buildIngredientFromParts(data, correctedName, quantity, unit);
+      const preliminaryCheck = refreshIngredientAgainstPantry(data, preliminary);
+      let confirmedCost = preliminary.estimatedPrice;
+
+      if (!preliminaryCheck.pantryCovered) {
+        const catalogEstimate = estimateIngredientCostFromCatalog(catalogMatch, quantity, unit);
+        const defaultPrice = catalogEstimate || preliminary.estimatedPrice;
+        confirmedCost = promptNumber(`${catalogMatch ? 'Confirm or edit the catalog price HomeLife found.' : 'HomeLife did not find a price catalog match. Enter an estimated price or leave 0.'}
+
+${catalogPriceLine(catalogMatch, quantity, unit)}
+Ingredient: ${quantity} ${unit} ${correctedName}
+
+This should be the estimated total cost added to the grocery list if you need to buy it.`, defaultPrice);
+      }
+
+      const finalIngredient = buildIngredientFromParts(data, correctedName, quantity, unit, confirmedCost);
       const finalCheck = refreshIngredientAgainstPantry(data, finalIngredient);
       reviewed.push({
         ...finalIngredient,
         pantryCovered: finalCheck.pantryCovered,
         pantryItemId: finalCheck.pantryCovered ? finalCheck.pantryItemId : undefined,
-        notes: finalCheck.pantryCovered ? 'Matched to pantry during photo review.' : finalIngredient.notes
+        priceCatalogItemId: finalIngredient.priceCatalogItemId ?? catalogMatch?.id,
+        store: finalIngredient.store ?? catalogMatch?.store,
+        notes: finalCheck.pantryCovered
+          ? 'Matched to pantry during photo review.'
+          : catalogMatch
+            ? `Price confirmed from catalog: ${catalogMatch.store}${catalogMatch.size ? ` · ${catalogMatch.size}` : ''}`
+            : 'No catalog price match; reviewed manually.'
       });
     }
 
@@ -1375,8 +1573,8 @@ function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) =
   }
 
   return <div className="recipe-page">
-    <div className="card wide"><div className="split"><div><h3>Recipe Builder</h3><p className="muted">Build reusable recipes manually, from smart pasted recipe text, or from photo-assisted capture. Photo capture now filters OCR noise, asks you to confirm each ingredient amount and cost, checks the pantry, and only pushes missing items to the grocery list.</p></div><div className="settings-actions"><button className="primary" onClick={addRecipe}><PlusCircle size={16} /> Add Manual Recipe</button><button onClick={addRecipeFromSmartText}>Smart Text Recipe</button><label className="button-like"><Camera size={16} /> Add Recipe From Photo<input type="file" accept="image/*" capture="environment" onChange={addRecipeFromPhoto} hidden /></label></div></div>{photoStatus && <div className="status-banner">{photoStatus}</div>}<input className="full-input" placeholder="Search recipes, categories, notes, or ingredients..." value={query} onChange={(event) => setQuery(event.target.value)} /><div className="totals"><span>Recipes: <strong>{data.recipes.length}</strong></span><span>Visible: <strong>{recipes.length}</strong></span></div></div>
-    <div className="grid two">{recipes.map((recipe) => <div className="card recipe-card" key={recipe.id}>{recipe.photoDataUrl && <img className="recipe-photo" src={recipe.photoDataUrl} alt={`${recipe.name} import`} />}<div className="split"><div><p className="label">{recipe.category ?? 'Recipe'} · {recipe.servings} serving(s) · {recipe.source}</p><h3>{recipe.name}</h3><p>{recipe.notes}</p></div><button className="icon-danger" onClick={() => deleteRecipe(recipe.id)}><Trash2 size={14} /> Delete Recipe</button></div><div className="meal-costs"><span>Recipe value: <strong>{money(recipeTotal(recipe))}</strong></span><span>Need to buy now: <strong>{money(recipeMissingTotal(recipe))}</strong></span><span>Ingredients: <strong>{recipe.ingredients.length}</strong></span></div><div className="settings-actions"><button onClick={() => addIngredient(recipe.id)}>Add Ingredient</button><label className="button-like"><Camera size={16} /> Add Ingredient Photo<input type="file" accept="image/*" capture="environment" onChange={(event) => addPhotoIngredient(recipe.id, event)} hidden /></label><button onClick={() => addSmartTextToRecipe(recipe.id)}>Add Smart Text</button><button onClick={() => refreshRecipe(recipe.id)}>Refresh Pantry Check</button><button onClick={() => planRecipe(recipe)}>Plan as Meal</button><button onClick={() => addRecipeMissingToGrocery(recipe)}>Missing to Grocery List</button></div>{recipe.instructions && <p className="instructions"><strong>Instructions:</strong> {recipe.instructions}</p>}<ul className="ingredient-list">{recipe.ingredients.map((ingredient) => { const refreshed = refreshIngredientAgainstPantry(data, ingredient); return <li key={ingredient.id}><div><strong>{ingredient.name}</strong><small>{ingredient.quantity} {ingredient.unit} · {ingredient.category ?? 'Other'} · {refreshed.pantryCovered ? 'pantry covered' : 'buy'} · {money(ingredient.estimatedPrice)} {ingredient.store ? `· ${ingredient.store}` : ''}</small></div><button className="icon-danger" onClick={() => deleteIngredient(recipe.id, ingredient.id)}><Trash2 size={14} /> Delete</button></li>; })}</ul></div>)}</div>
+    <div className="card wide"><div className="split"><div><h3>Recipe Builder</h3><p className="muted">Build reusable recipes manually, from smart pasted recipe text, or from photo-assisted capture. Photo capture filters OCR noise, asks you to confirm the ingredient and amount, checks the pantry, finds the best price catalog match, then lets you confirm or edit that price before missing items go to the grocery list.</p></div><div className="settings-actions"><button className="primary" onClick={addRecipe}><PlusCircle size={16} /> Add Manual Recipe</button><button onClick={addRecipeFromSmartText}>Smart Text Recipe</button><label className="button-like"><Camera size={16} /> Add Recipe From Photo<input type="file" accept="image/*" capture="environment" onChange={addRecipeFromPhoto} hidden /></label></div></div>{photoStatus && <div className="status-banner">{photoStatus}</div>}<input className="full-input" placeholder="Search recipes, categories, notes, or ingredients..." value={query} onChange={(event) => setQuery(event.target.value)} /><div className="totals"><span>Recipes: <strong>{data.recipes.length}</strong></span><span>Visible: <strong>{recipes.length}</strong></span></div></div>
+    <div className="grid two">{recipes.map((recipe) => <div className="card recipe-card" key={recipe.id}>{recipe.photoDataUrl && <img className="recipe-photo" src={recipe.photoDataUrl} alt={`${recipe.name} import`} />}<div className="split"><div><p className="label">{recipe.category ?? 'Recipe'} · {recipe.servings} serving(s) · {recipe.source}</p><h3>{recipe.name}</h3><p>{recipe.notes}</p></div><button className="icon-danger" onClick={() => deleteRecipe(recipe.id)}><Trash2 size={14} /> Delete Recipe</button></div><div className="meal-costs"><span>Recipe value: <strong>{money(recipeTotal(recipe))}</strong></span><span>Need to buy now: <strong>{money(recipeMissingTotal(recipe))}</strong></span><span>Ingredients: <strong>{recipe.ingredients.length}</strong></span></div><div className="settings-actions"><button onClick={() => addIngredient(recipe.id)}>Add Ingredient</button><label className="button-like"><Camera size={16} /> Add Ingredient Photo<input type="file" accept="image/*" capture="environment" onChange={(event) => addPhotoIngredient(recipe.id, event)} hidden /></label><button onClick={() => addSmartTextToRecipe(recipe.id)}>Add Smart Text</button><button onClick={() => refreshRecipe(recipe.id)}>Refresh Pantry Check</button><button onClick={() => planRecipe(recipe)}>Plan as Meal</button><button onClick={() => addRecipeMissingToGrocery(recipe)}>Missing to Grocery List</button></div>{recipe.instructions && <p className="instructions"><strong>Instructions:</strong> {recipe.instructions}</p>}<ul className="ingredient-list">{recipe.ingredients.map((ingredient) => { const refreshed = refreshIngredientAgainstPantry(data, ingredient); return <li key={ingredient.id}><div><strong>{ingredient.name}</strong><small>{ingredient.quantity} {ingredient.unit} · {ingredient.category ?? 'Other'} · {refreshed.pantryCovered ? 'pantry covered' : 'buy'} · {money(ingredient.estimatedPrice)} {ingredient.store ? `· ${ingredient.store}` : ''}</small></div><div className="row-actions"><button onClick={() => editIngredient(recipe.id, ingredient.id)}>Edit</button><button className="icon-danger" onClick={() => deleteIngredient(recipe.id, ingredient.id)}><Trash2 size={14} /> Delete</button></div></li>; })}</ul></div>)}</div>
   </div>;
 }
 
@@ -1529,7 +1727,7 @@ function SettingsPage({ data, update, cloudControls }: { data: AppData; update: 
   return <div className="card wide">
     <div className="split"><div><h3>Settings, Logins & Test Families</h3><p className="muted">Household code <strong>{data.inviteCode ?? data.householdId}</strong> separates each family test workspace. Cloud Sync lets the same family workspace follow users across phones, computers, and networks.</p></div><div className="settings-actions"><button onClick={renameHousehold}>Rename Household</button><button className="primary" onClick={addUser}><PlusCircle size={14} /> Add User Login</button></div></div>
     <div className="card inset-card cloud-card">
-      <div className="split"><div><h4>Reachable Cloud Backend</h4><p className="muted">Status: <strong>{cloudControls.status}</strong>. The Supabase connection is built in. Enter only the family cloud password on each household device; the workspace is encrypted in the browser before saving. No readable budget, register, pantry, recipe, or grocery data is saved to Supabase.</p></div><div className="settings-actions"><button onClick={cloudControls.configure}>Cloud Setup</button><button onClick={cloudControls.test}>Test</button><button className="primary" onClick={cloudControls.push}>Push Now</button><button onClick={cloudControls.pull}>Pull Latest</button><button className="danger" onClick={cloudControls.disable}>Disable</button></div></div>
+      <div className="split"><div><h4>Reachable Cloud Backend</h4><p className="muted">Status: <strong>{cloudControls.status}</strong>. The Supabase connection is built in. Enter the same family cloud password on each household device and keep auto-sync on. HomeLife pushes saves and auto-pulls newer cloud changes when the app is focused and about every 45 seconds. The workspace is encrypted in the browser before saving. No readable budget, register, pantry, recipe, or grocery data is saved to Supabase.</p></div><div className="settings-actions"><button onClick={cloudControls.configure}>Cloud Setup</button><button onClick={cloudControls.test}>Test</button><button className="primary" onClick={cloudControls.push}>Push Now</button><button onClick={cloudControls.pull}>Pull Latest</button><button className="danger" onClick={cloudControls.disable}>Disable</button></div></div>
       <p className="privacy-callout">Privacy hardening: cloud rows use a one-way workspace ID generated from the family code and cloud password. The raw family code, household name, and household data are not stored as readable Supabase columns. Changing the cloud password creates a different encrypted cloud workspace unless the data is re-saved with the new password.</p>
     </div>
     <h4>User logins and view controls</h4>

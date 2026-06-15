@@ -1,0 +1,9 @@
+HomeLife v2026.06.12.0020
+
+- Recipe photo review no longer asks for price first.
+- HomeLife now searches the price catalog for each detected/corrected ingredient.
+- Missing ingredients show the catalog estimate and ask you to confirm or edit it.
+- Pantry-covered items do not ask for purchase price and are not pushed to the grocery list.
+- Ingredient matching now uses better token/fuzzy matching against pantry and price catalog records.
+- OCR noise filtering is stricter to reduce nonsense ingredient names.
+- Cloud error text and SQL setup file now reference the v0020 Supabase function setup.
