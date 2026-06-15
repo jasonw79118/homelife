@@ -116,3 +116,7 @@ Embedded the provided Supabase project URL and anon public key as the built-in c
 
 --- v2026.06.12.0016 ---
 Privacy-hardening patch for multi-family testing. Cloud data is still encrypted before upload, but the Supabase storage model is now safer: the app writes a one-way workspace ID instead of raw family code/household name, the family cloud password is kept session-only instead of localStorage, table-wide anon policies are removed, and RPC functions only pull/save one encrypted workspace at a time. Run supabase/homelife_cloud_schema.sql in Supabase before relying on cloud sync for external testers.
+
+v2026.06.12.0017
+- Improved Recipe Builder capture: natural recipe text parser, browser OCR hook, barcode/catalog lookup, Smart Text Recipe import, and no comma-only ingredient requirement.
+- Build passed with npm run build.

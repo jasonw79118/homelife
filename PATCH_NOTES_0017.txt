@@ -1,0 +1,17 @@
+HomeLife v2026.06.12.0017 - Smarter Recipe Capture
+
+Changes:
+- Reworked recipe photo capture so it no longer requires comma-formatted ingredients.
+- Added browser text detection support where available.
+- Added barcode/catalog lookup support to photo capture.
+- Added smart ingredient parser that reads normal recipe text, bullets, lines, semicolons, fractions, and common units.
+- Added Smart Text Recipe button for pasting copied recipe text or phone Live Text output.
+- Photo workflow now shows detected ingredients and can add them automatically.
+- Pantry/price matching still runs after recipe ingredients are parsed.
+- Meal Planner integration remains intact.
+
+Note:
+Browser OCR support varies by device/browser. When the browser cannot read text directly from a photo, HomeLife now accepts pasted full recipe text and still extracts ingredients automatically without requiring comma format.
+
+Build:
+- npm run build completed successfully.

@@ -270,10 +270,6 @@ function findPantryMatch(name: string, pantryItems: PantryItem[]) {
     ?? pantryItems.find((p) => p.name.toLowerCase().includes(needle) || needle.includes(p.name.toLowerCase()));
 }
 
-function normalizeUnit(value: string | null | undefined) {
-  return clean(value, 'item').toLowerCase().replace(/\.$/, '').replace(/s$/, '');
-}
-
 function pantryCoversIngredient(ingredientName: string, quantity: number, unit: string, pantryItems: PantryItem[]) {
   const pantry = findPantryMatch(ingredientName, pantryItems);
   if (!pantry) return false;
@@ -328,28 +324,151 @@ function ingredientToShoppingItem(meal: MealPlanItem, ingredient: MealIngredient
   };
 }
 
-function inferIngredientNamesFromPhotoName(filename: string, data: AppData): string[] {
-  const base = filename.replace(/\.[a-z0-9]+$/i, ' ').replace(/[_-]+/g, ' ').toLowerCase();
-  const candidates = data.priceCatalog
-    .map((p) => p.name)
-    .concat(data.pantryItems.map((p) => p.name))
-    .filter((name, index, all) => all.findIndex((other) => other.toLowerCase() === name.toLowerCase()) === index);
-  const matches = candidates.filter((name) => base.includes(name.toLowerCase()));
-  if (matches.length) return matches.slice(0, 5);
-  const words = base.split(/\s+/).filter((word) => word.length > 2 && !['img', 'image', 'photo', 'ingredient', 'recipe', 'scan', 'jpg', 'jpeg', 'png', 'heic'].includes(word));
-  return words.length ? [words.map((word) => word[0].toUpperCase() + word.slice(1)).join(' ')] : [];
+
+const COMMON_INGREDIENT_WORDS = [
+  'beef', 'ground beef', 'chicken', 'chicken breast', 'turkey', 'pork', 'ham', 'bacon', 'sausage', 'fish', 'salmon', 'tuna', 'shrimp',
+  'egg', 'eggs', 'milk', 'butter', 'cheese', 'cream cheese', 'sour cream', 'yogurt', 'heavy cream',
+  'flour', 'sugar', 'brown sugar', 'powdered sugar', 'baking powder', 'baking soda', 'yeast', 'cornstarch',
+  'rice', 'pasta', 'noodles', 'spaghetti', 'macaroni', 'bread', 'tortillas', 'oats', 'cereal',
+  'beans', 'black beans', 'pinto beans', 'kidney beans', 'corn', 'peas', 'green beans',
+  'tomato', 'tomatoes', 'tomato sauce', 'tomato paste', 'diced tomatoes', 'onion', 'onions', 'garlic', 'potato', 'potatoes', 'carrot', 'carrots',
+  'lettuce', 'spinach', 'broccoli', 'pepper', 'bell pepper', 'jalapeno', 'avocado', 'lime', 'lemon', 'apple', 'banana',
+  'salt', 'pepper', 'garlic powder', 'onion powder', 'paprika', 'cumin', 'chili powder', 'cinnamon', 'vanilla', 'oregano', 'basil',
+  'oil', 'olive oil', 'vegetable oil', 'vinegar', 'soy sauce', 'worcestershire sauce', 'bbq sauce', 'ketchup', 'mustard', 'mayonnaise', 'salsa', 'broth', 'stock'
+];
+
+const INGREDIENT_UNITS = [
+  'teaspoon', 'teaspoons', 'tsp', 'tablespoon', 'tablespoons', 'tbsp', 'cup', 'cups', 'pint', 'pints', 'quart', 'quarts', 'gallon', 'gallons',
+  'ounce', 'ounces', 'oz', 'pound', 'pounds', 'lb', 'lbs', 'gram', 'grams', 'g', 'kg', 'kilogram', 'kilograms',
+  'can', 'cans', 'jar', 'jars', 'box', 'boxes', 'bag', 'bags', 'package', 'packages', 'pkg', 'bottle', 'bottles',
+  'clove', 'cloves', 'slice', 'slices', 'stick', 'sticks', 'dash', 'pinch', 'sprig', 'head', 'bunch', 'item', 'items'
+];
+
+const UNICODE_FRACTIONS: Record<string, string> = {
+  '¼': ' 1/4', '½': ' 1/2', '¾': ' 3/4', '⅓': ' 1/3', '⅔': ' 2/3', '⅛': ' 1/8', '⅜': ' 3/8', '⅝': ' 5/8', '⅞': ' 7/8'
+};
+
+function normalizeUnit(unit: string | undefined): string {
+  const cleaned = clean(unit, 'item').toLowerCase().replace(/\.$/, '');
+  const map: Record<string, string> = {
+    teaspoons: 'tsp', teaspoon: 'tsp', tablespoon: 'tbsp', tablespoons: 'tbsp', ounce: 'oz', ounces: 'oz', pound: 'lb', pounds: 'lb', lbs: 'lb',
+    packages: 'package', pkgs: 'package', pkg: 'package', cans: 'can', jars: 'jar', bags: 'bag', boxes: 'box', bottles: 'bottle', cloves: 'clove', slices: 'slice', sticks: 'stick', cups: 'cup'
+  };
+  return map[cleaned] ?? cleaned ?? 'item';
+}
+
+function titleCaseIngredient(value: string): string {
+  return clean(value).split(/\s+/).map((word) => {
+    if (word.length <= 2 && ['of', 'or', 'to'].includes(word.toLowerCase())) return word.toLowerCase();
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  }).join(' ');
+}
+
+function parseSmartQuantity(value: string | undefined): number {
+  const raw = clean(value).replace(/[()]/g, '');
+  if (!raw) return 1;
+  const parts = raw.split(/\s+/).filter(Boolean);
+  let total = 0;
+  for (const part of parts) {
+    if (/^\d+\/\d+$/.test(part)) {
+      const [a, b] = part.split('/').map(Number);
+      total += b ? a / b : 0;
+    } else {
+      const parsed = Number(part);
+      if (Number.isFinite(parsed)) total += parsed;
+    }
+  }
+  return total > 0 ? total : 1;
+}
+
+function stripRecipeNoise(text: string): string {
+  let out = clean(text)
+    .replace(/[¼½¾⅓⅔⅛⅜⅝⅞]/g, (match) => UNICODE_FRACTIONS[match] ?? match)
+    .replace(/\r/g, '\n')
+    .replace(/\u2022|•|▪|◦|–|—/g, '\n')
+    .replace(/\b(ingredients?|what you need|shopping list)\s*:?/gi, '\n')
+    .replace(/\b(directions?|instructions?|method|preparation|prep|steps?)\s*:?/gi, '\nSTOP_RECIPE_DIRECTIONS\n')
+    .replace(/\b(nutrition|calories|servings?|yield|cook time|prep time|total time)\b[^\n]*/gi, '\n');
+  out = out.split('STOP_RECIPE_DIRECTIONS')[0] ?? out;
+  return out.replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim();
+}
+
+function splitIngredientCandidates(text: string): string[] {
+  const cleaned = stripRecipeNoise(text);
+  const unitPattern = INGREDIENT_UNITS.join('|');
+  const quantityLookahead = `(?=(?:\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?)(?:\\s*(?:${unitPattern})\\b|\\s+[a-zA-Z]))`;
+  const withBreaks = cleaned
+    .replace(/\s*(?:,|;|\|)\s*(?=(?:\d|[¼½¾⅓⅔⅛⅜⅝⅞]))/g, '\n')
+    .replace(new RegExp(`\\s+${quantityLookahead}`, 'gi'), '\n')
+    .replace(/\s+(?=(?:one|two|three|four|five|six|seven|eight|nine|ten)\s)/gi, '\n');
+  return withBreaks
+    .split(/\n+/)
+    .map((line) => clean(line.replace(/^[-*\d.)\s]+(?=\D)/, '')))
+    .filter(Boolean);
+}
+
+function isLikelyInstruction(line: string): boolean {
+  const lower = line.toLowerCase();
+  if (/^(preheat|heat|cook|bake|mix|stir|combine|serve|slice|chop|dice|add|place|pour|sprinkle|cover|remove|let|whisk)\b/.test(lower)) return true;
+  if (lower.split(/\s+/).length > 18 && !/\d|cup|tbsp|tsp|lb|oz|can|package|clove|salt|pepper/i.test(lower)) return true;
+  return false;
 }
 
 function parseIngredientLine(line: string): { name: string; quantity: number; unit: string; estimatedPrice?: number } | null {
   const cleaned = clean(line);
-  if (!cleaned) return null;
+  if (!cleaned || isLikelyInstruction(cleaned)) return null;
   const priceMatch = cleaned.match(/\$\s*([0-9]+(?:\.[0-9]{1,2})?)/);
   const estimatedPrice = priceMatch ? Number(priceMatch[1]) : undefined;
-  const withoutPrice = cleaned.replace(/\$\s*[0-9]+(?:\.[0-9]{1,2})?/, '').replace(/[,;]+$/, '').trim();
-  const match = withoutPrice.match(/^([0-9]+(?:\.[0-9]+)?|\d+\/\d+)\s+([a-zA-Z]+)?\s*(.+)$/);
-  if (!match) return { name: withoutPrice, quantity: 1, unit: 'item', estimatedPrice };
-  const rawQuantity = match[1].includes('/') ? match[1].split('/').map(Number).reduce((a, b) => b ? a / b : a) : Number(match[1]);
-  return { name: clean(match[3], withoutPrice), quantity: Number.isFinite(rawQuantity) ? rawQuantity : 1, unit: clean(match[2], 'item'), estimatedPrice };
+  let withoutPrice = cleaned.replace(/\$\s*[0-9]+(?:\.[0-9]{1,2})?/, '').replace(/[,;]+$/, '').trim();
+  withoutPrice = withoutPrice.replace(/\b(optional|divided|to taste|as needed|for serving|for garnish)\b/gi, '').trim();
+  withoutPrice = withoutPrice.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+  const unitPattern = INGREDIENT_UNITS.join('|');
+  const quantityPattern = '(\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?)';
+  const quantified = withoutPrice.match(new RegExp(`^${quantityPattern}\\s*(?:(${unitPattern})\\b)?\\s*(?:of\\s+)?(.+)$`, 'i'));
+  if (quantified) {
+    const rawQuantity = parseSmartQuantity(quantified[1]);
+    const unit = normalizeUnit(quantified[2] || 'item');
+    const name = titleCaseIngredient((quantified[3] ?? withoutPrice).replace(/,.*$/, '').trim());
+    if (!name || name.length < 2) return null;
+    return { name, quantity: rawQuantity, unit, estimatedPrice };
+  }
+  const namedUnit = withoutPrice.match(new RegExp(`^(.+?)\\s+(${unitPattern})s?$`, 'i'));
+  const nameOnly = titleCaseIngredient((namedUnit?.[1] ?? withoutPrice).replace(/,.*$/, '').trim());
+  if (!nameOnly || nameOnly.length < 2) return null;
+  return { name: nameOnly, quantity: 1, unit: namedUnit ? normalizeUnit(namedUnit[2]) : 'item', estimatedPrice };
+}
+
+function knownIngredientNames(data: AppData): string[] {
+  return data.priceCatalog
+    .map((p) => p.name)
+    .concat(data.pantryItems.map((p) => p.name), COMMON_INGREDIENT_WORDS)
+    .filter((name, index, all) => Boolean(name) && all.findIndex((other) => other.toLowerCase() === name.toLowerCase()) === index)
+    .sort((a, b) => b.length - a.length);
+}
+
+function inferIngredientNamesFromPhotoName(filename: string, data: AppData): string[] {
+  const base = filename.replace(/\.[a-z0-9]+$/i, ' ').replace(/[_-]+/g, ' ').toLowerCase();
+  const matches = knownIngredientNames(data).filter((name) => base.includes(name.toLowerCase()));
+  if (matches.length) return matches.slice(0, 8);
+  const words = base.split(/\s+/).filter((word) => word.length > 2 && !['img', 'image', 'photo', 'ingredient', 'recipe', 'scan', 'jpg', 'jpeg', 'png', 'heic'].includes(word));
+  return words.length ? [titleCaseIngredient(words.join(' '))] : [];
+}
+
+function smartParseIngredientsFromText(data: AppData, text: string): { ingredients: MealIngredient[]; sourceText: string } {
+  const sourceText = stripRecipeNoise(text);
+  const parsed = splitIngredientCandidates(sourceText)
+    .map(parseIngredientLine)
+    .filter((item): item is { name: string; quantity: number; unit: string; estimatedPrice?: number } => Boolean(item && item.name));
+  const catalogNames = knownIngredientNames(data);
+  const lowerText = sourceText.toLowerCase();
+  const inferred: Array<{ name: string; quantity: number; unit: string; estimatedPrice?: number }> = catalogNames
+    .filter((name) => lowerText.includes(name.toLowerCase()))
+    .filter((name) => !parsed.some((item) => item.name.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(item.name.toLowerCase())))
+    .slice(0, 12)
+    .map((name) => ({ name, quantity: 1, unit: 'item' }));
+  const combined = [...parsed, ...inferred];
+  const unique = combined.filter((item, index, all) => all.findIndex((other) => other.name.toLowerCase() === item.name.toLowerCase() && other.unit === item.unit) === index);
+  return { ingredients: unique.map((item) => buildIngredientFromParts(data, item.name, item.quantity, item.unit, item.estimatedPrice)), sourceText };
 }
 
 function pantryValue(items: PantryItem[]) {
@@ -674,7 +793,7 @@ function App() {
       </div>
       <nav>{visibleNav.map((n) => { const Icon = n.icon; return <button key={n.id} className={activeNav === n.id ? 'active' : ''} onClick={() => { setPage(n.id); setMobileMenuOpen(false); }}><Icon size={18} /> {n.label}</button>; })}</nav>
       {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this login.</div>}
-      <div className="version-badge">v2026.06.12.0016</div>
+      <div className="version-badge">v2026.06.12.0017</div>
     </aside>
     <main>
       <header className="topbar"><div><h2>{nav.find((n) => n.id === activeNav)?.label ?? 'Dashboard'}</h2><p><strong>{data.householdName ?? 'Household'}</strong> · signed in as <strong>{currentUser.name}</strong> · {roleLabel(currentUser.role)}</p></div><div className="settings-actions"><span className="pill neutral">Code: {householdCode}</span><span className="pill neutral">{cloudStatus}</span><button onClick={signOut}>Switch family/user</button></div></header>
@@ -925,10 +1044,7 @@ function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) =
   }
 
   function parseIngredientsFromText(text: string): MealIngredient[] {
-    return text.split(/\n|,/)
-      .map(parseIngredientLine)
-      .filter((item): item is { name: string; quantity: number; unit: string; estimatedPrice?: number } => Boolean(item && item.name))
-      .map((item) => buildIngredientFromParts(data, item.name, item.quantity, item.unit, item.estimatedPrice));
+    return smartParseIngredientsFromText(data, text).ingredients;
   }
 
   async function readPhoto(file: File): Promise<string | undefined> {
@@ -940,28 +1056,73 @@ function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) =
     });
   }
 
-  async function ingredientsFromPhotoFile(file: File): Promise<MealIngredient[]> {
-    const detectedNames = inferIngredientNamesFromPhotoName(file.name, data);
+  async function extractTextFromPhotoFile(file: File): Promise<string> {
+    try {
+      type TextDetectorLike = new () => { detect(source: ImageBitmapSource): Promise<Array<{ rawValue?: string; rawText?: string; text?: string }>> };
+      const TextDetectorCtor = (window as unknown as { TextDetector?: TextDetectorLike }).TextDetector;
+      if (!TextDetectorCtor || typeof createImageBitmap !== 'function') return '';
+      const image = await createImageBitmap(file);
+      try {
+        const detector = new TextDetectorCtor();
+        const blocks = await detector.detect(image);
+        return blocks.map((block) => clean(block.rawValue ?? block.rawText ?? block.text)).filter(Boolean).join('\n');
+      } finally {
+        image.close?.();
+      }
+    } catch (error) {
+      console.warn('Photo text detection unavailable in this browser.', error);
+      return '';
+    }
+  }
+
+  async function detectBarcodeIngredientNames(file: File): Promise<string[]> {
     const barcodeMatches: string[] = [];
     try {
       type BarcodeDetectorLike = new (options?: { formats?: string[] }) => { detect(source: ImageBitmapSource): Promise<Array<{ rawValue: string }>> };
       const BarcodeDetectorCtor = (window as unknown as { BarcodeDetector?: BarcodeDetectorLike }).BarcodeDetector;
       if (BarcodeDetectorCtor && typeof createImageBitmap === 'function') {
         const image = await createImageBitmap(file);
-        const detector = new BarcodeDetectorCtor({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
-        const codes = await detector.detect(image);
-        codes.forEach((code) => {
-          const match = data.priceCatalog.find((item) => item.upc === code.rawValue || item.sku === code.rawValue);
-          if (match) barcodeMatches.push(match.name);
-        });
+        try {
+          const detector = new BarcodeDetectorCtor({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
+          const codes = await detector.detect(image);
+          codes.forEach((code) => {
+            const match = data.priceCatalog.find((item) => item.upc === code.rawValue || item.sku === code.rawValue);
+            if (match) barcodeMatches.push(match.name);
+          });
+        } finally {
+          image.close?.();
+        }
       }
     } catch (error) {
       console.warn('Photo/barcode ingredient detection unavailable in this browser.', error);
     }
-    const suggestion = [...barcodeMatches, ...detectedNames].filter(Boolean).join(', ');
-    const reviewed = clean(prompt('Review photo ingredient detection. Enter ingredient(s) separated by commas or lines. Example: 2 lb chicken breast, 1 bag rice', suggestion));
-    return parseIngredientsFromText(reviewed);
+    return barcodeMatches;
   }
+
+  async function ingredientsFromPhotoFile(file: File): Promise<MealIngredient[]> {
+    const detectedText = await extractTextFromPhotoFile(file);
+    const barcodeNames = await detectBarcodeIngredientNames(file);
+    const filenameNames = inferIngredientNamesFromPhotoName(file.name, data);
+    const autoSourceText = [detectedText, barcodeNames.join('\n'), filenameNames.join('\n')].filter(Boolean).join('\n');
+    let parsed = parseIngredientsFromText(autoSourceText);
+
+    if (parsed.length) {
+      const summary = parsed.slice(0, 12).map((ingredient) => `• ${ingredient.quantity} ${ingredient.unit} ${ingredient.name}`).join('\n');
+      const useDetected = confirm(`HomeLife detected these ingredient(s) from the photo and catalog lookup:\n\n${summary}${parsed.length > 12 ? `\n…and ${parsed.length - 12} more` : ''}\n\nUse these automatically?\n\nChoose Cancel to review/edit the detected recipe text first.`);
+      if (useDetected) return parsed;
+    }
+
+    const fallbackText = parsed.length ? autoSourceText : '';
+    const reviewed = clean(prompt(
+      'Review or paste the recipe/ingredient text from the photo. No comma format needed — paste full lines, bullets, or recipe text and HomeLife will pick out the ingredients automatically.',
+      fallbackText
+    ));
+    if (!reviewed) return parsed;
+    parsed = parseIngredientsFromText(reviewed);
+    if (!parsed.length) alert('HomeLife could not identify ingredients from that text. Try a clearer photo of the ingredient list or paste the recipe ingredient section.');
+    return parsed;
+  }
+
 
   async function addRecipeFromPhoto(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -1006,8 +1167,22 @@ function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) =
     update({ ...data, recipes: data.recipes.map((recipe) => recipe.id === recipeId ? { ...recipe, ingredients: recipe.ingredients.map((ingredient) => refreshIngredientAgainstPantry(data, ingredient)), updatedAt: new Date().toISOString() } : recipe) });
   }
 
+
+  function addRecipeFromSmartText() {
+    const recipeText = clean(prompt('Paste a full recipe, ingredient section, grocery note, or copied text from a photo. HomeLife will identify ingredient lines automatically — commas are not required.', ''));
+    if (!recipeText) return;
+    const parsed = smartParseIngredientsFromText(data, recipeText);
+    if (!parsed.ingredients.length) { alert('HomeLife could not identify ingredients from that text. Try pasting the ingredient section or one ingredient per line.'); return; }
+    const firstMeaningfulLine = splitIngredientCandidates(parsed.sourceText)[0] ?? 'Smart Recipe';
+    const name = clean(prompt('Recipe name?', titleCaseIngredient(firstMeaningfulLine.replace(/^\d+\s*(cup|cups|tbsp|tsp|lb|lbs|oz|can|package|item)?\s*/i, '').slice(0, 50))), 'Smart Recipe');
+    const servings = promptNumber('Servings?', 4);
+    const timestamp = new Date().toISOString();
+    const recipe: Recipe = { id: uid('recipe'), name, servings: Math.max(1, servings), category: 'Smart Text Import', ingredients: parsed.ingredients, source: 'manual', notes: 'Built from smart recipe text parsing.', createdAt: timestamp, updatedAt: timestamp };
+    update({ ...data, recipes: [...data.recipes, recipe] });
+  }
+
   return <div className="recipe-page">
-    <div className="card wide"><div className="split"><div><h3>Recipe Builder</h3><p className="muted">Build reusable recipes manually or with a photo-assisted ingredient capture. Recipes can be planned as meals, then HomeLife compares the ingredients against pantry inventory and sends only missing items to the grocery list.</p></div><div className="settings-actions"><button className="primary" onClick={addRecipe}><PlusCircle size={16} /> Add Manual Recipe</button><label className="button-like"><Camera size={16} /> Add Recipe From Photo<input type="file" accept="image/*" capture="environment" onChange={addRecipeFromPhoto} hidden /></label></div></div><input className="full-input" placeholder="Search recipes, categories, notes, or ingredients..." value={query} onChange={(event) => setQuery(event.target.value)} /><div className="totals"><span>Recipes: <strong>{data.recipes.length}</strong></span><span>Visible: <strong>{recipes.length}</strong></span></div></div>
+    <div className="card wide"><div className="split"><div><h3>Recipe Builder</h3><p className="muted">Build reusable recipes manually, from smart pasted recipe text, or from photo-assisted capture. Photo capture now attempts browser text/barcode detection and then parses natural recipe text automatically, so ingredients do not have to be entered in comma format.</p></div><div className="settings-actions"><button className="primary" onClick={addRecipe}><PlusCircle size={16} /> Add Manual Recipe</button><button onClick={addRecipeFromSmartText}>Smart Text Recipe</button><label className="button-like"><Camera size={16} /> Add Recipe From Photo<input type="file" accept="image/*" capture="environment" onChange={addRecipeFromPhoto} hidden /></label></div></div><input className="full-input" placeholder="Search recipes, categories, notes, or ingredients..." value={query} onChange={(event) => setQuery(event.target.value)} /><div className="totals"><span>Recipes: <strong>{data.recipes.length}</strong></span><span>Visible: <strong>{recipes.length}</strong></span></div></div>
     <div className="grid two">{recipes.map((recipe) => <div className="card recipe-card" key={recipe.id}>{recipe.photoDataUrl && <img className="recipe-photo" src={recipe.photoDataUrl} alt={`${recipe.name} import`} />}<div className="split"><div><p className="label">{recipe.category ?? 'Recipe'} · {recipe.servings} serving(s) · {recipe.source}</p><h3>{recipe.name}</h3><p>{recipe.notes}</p></div><button className="icon-danger" onClick={() => deleteRecipe(recipe.id)}><Trash2 size={14} /> Delete Recipe</button></div><div className="meal-costs"><span>Recipe value: <strong>{money(recipeTotal(recipe))}</strong></span><span>Need to buy now: <strong>{money(recipeMissingTotal(recipe))}</strong></span><span>Ingredients: <strong>{recipe.ingredients.length}</strong></span></div><div className="settings-actions"><button onClick={() => addIngredient(recipe.id)}>Add Ingredient</button><label className="button-like"><Camera size={16} /> Add Ingredient Photo<input type="file" accept="image/*" capture="environment" onChange={(event) => addPhotoIngredient(recipe.id, event)} hidden /></label><button onClick={() => refreshRecipe(recipe.id)}>Refresh Pantry Check</button><button onClick={() => planRecipe(recipe)}>Plan as Meal</button><button onClick={() => addRecipeMissingToGrocery(recipe)}>Missing to Grocery List</button></div>{recipe.instructions && <p className="instructions"><strong>Instructions:</strong> {recipe.instructions}</p>}<ul className="ingredient-list">{recipe.ingredients.map((ingredient) => { const refreshed = refreshIngredientAgainstPantry(data, ingredient); return <li key={ingredient.id}><div><strong>{ingredient.name}</strong><small>{ingredient.quantity} {ingredient.unit} · {ingredient.category ?? 'Other'} · {refreshed.pantryCovered ? 'pantry covered' : 'buy'} · {money(ingredient.estimatedPrice)} {ingredient.store ? `· ${ingredient.store}` : ''}</small></div><button className="icon-danger" onClick={() => deleteIngredient(recipe.id, ingredient.id)}><Trash2 size={14} /> Delete</button></li>; })}</ul></div>)}</div>
   </div>;
 }
