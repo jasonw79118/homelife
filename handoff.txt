@@ -79,3 +79,10 @@ User-reported fixes:
 Validation:
 - npm install completed successfully in the sandbox.
 - npm run build completed successfully.
+
+
+2026.06.12.0010 Recipe Builder Handoff
+- Added reusable recipes with manual entry and photo-assisted ingredient capture.
+- Recipes can be planned from the Recipe Builder page or selected from Meal Planner.
+- Pantry matching is refreshed when planning meals or pushing missing items to grocery lists.
+- Keep only .github/workflows/deploy.yml if Pages deployment reports duplicate artifacts.

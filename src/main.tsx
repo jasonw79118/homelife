@@ -10,6 +10,7 @@ import type {
   PantryCategory,
   PantryItem,
   PriceCatalogItem,
+  Recipe,
   Role,
   ShoppingItem,
   ShoppingList,
@@ -25,6 +26,8 @@ function IconGlyph({ label, size = 16 }: IconProps & { label: string }) {
 }
 const Archive = (props: IconProps) => <IconGlyph label="▣" {...props} />;
 const BarChart3 = (props: IconProps) => <IconGlyph label="▥" {...props} />;
+const BookOpen = (props: IconProps) => <IconGlyph label="📖" {...props} />;
+const Camera = (props: IconProps) => <IconGlyph label="📷" {...props} />;
 const CookingPot = (props: IconProps) => <IconGlyph label="🍲" {...props} />;
 const EyeOff = (props: IconProps) => <IconGlyph label="◌" {...props} />;
 const FileSearch = (props: IconProps) => <IconGlyph label="⌕" {...props} />;
@@ -32,6 +35,7 @@ const Home = (props: IconProps) => <IconGlyph label="⌂" {...props} />;
 const Landmark = (props: IconProps) => <IconGlyph label="▤" {...props} />;
 const Settings = (props: IconProps) => <IconGlyph label="⚙" {...props} />;
 const ShoppingCart = (props: IconProps) => <IconGlyph label="🛒" {...props} />;
+const PlusCircle = (props: IconProps) => <IconGlyph label="＋" {...props} />;
 const Tags = (props: IconProps) => <IconGlyph label="🏷" {...props} />;
 const Trash2 = (props: IconProps) => <IconGlyph label="×" {...props} />;
 const Utensils = (props: IconProps) => <IconGlyph label="🍽" {...props} />;
@@ -196,6 +200,32 @@ function normalizeData(data: Partial<AppData> | null | undefined): AppData {
       notes: item?.notes,
       lastUpdated: clean(item?.lastUpdated, today())
     })),
+    recipes: arrayOf<Recipe>(safe.recipes, fallback.recipes ?? []).map((recipe, index) => ({
+      id: clean(recipe?.id, `recipe-${index + 1}`),
+      name: clean(recipe?.name, `Recipe ${index + 1}`),
+      servings: safeNumber(recipe?.servings, 4),
+      category: recipe?.category,
+      ingredients: arrayOf<MealIngredient>(recipe?.ingredients, []).map((ing, ingIndex) => ({
+        id: clean(ing?.id, `recipe-ing-${index + 1}-${ingIndex + 1}`),
+        name: clean(ing?.name, `Ingredient ${ingIndex + 1}`),
+        quantity: safeNumber(ing?.quantity, 1),
+        unit: clean(ing?.unit, 'item'),
+        category: ing?.category,
+        estimatedPrice: safeNumber(ing?.estimatedPrice, 0),
+        pantryCovered: Boolean(ing?.pantryCovered),
+        pantryItemId: ing?.pantryItemId,
+        priceCatalogItemId: ing?.priceCatalogItemId,
+        store: ing?.store,
+        notes: ing?.notes
+      })),
+      instructions: recipe?.instructions,
+      notes: recipe?.notes,
+      source: (['manual', 'photo', 'starter'].includes(String(recipe?.source)) ? recipe.source : 'manual') as Recipe['source'],
+      photoName: recipe?.photoName,
+      photoDataUrl: recipe?.photoDataUrl,
+      createdAt: clean(recipe?.createdAt, today()),
+      updatedAt: clean(recipe?.updatedAt, today())
+    })).filter((recipe) => recipe.id && recipe.name),
     mealPlans: arrayOf<MealPlanItem>(safe.mealPlans, fallback.mealPlans).map((meal, index) => ({
       id: clean(meal?.id, `meal-${index + 1}`),
       name: clean(meal?.name, `Meal ${index + 1}`),
@@ -216,6 +246,7 @@ function normalizeData(data: Partial<AppData> | null | undefined): AppData {
         notes: ing?.notes
       })),
       notes: meal?.notes,
+      recipeId: meal?.recipeId,
       createdAt: clean(meal?.createdAt, today())
     }))
   };
@@ -233,6 +264,88 @@ function findPantryMatch(name: string, pantryItems: PantryItem[]) {
     ?? pantryItems.find((p) => p.name.toLowerCase().includes(needle) || needle.includes(p.name.toLowerCase()));
 }
 
+function normalizeUnit(value: string | null | undefined) {
+  return clean(value, 'item').toLowerCase().replace(/\.$/, '').replace(/s$/, '');
+}
+
+function pantryCoversIngredient(ingredientName: string, quantity: number, unit: string, pantryItems: PantryItem[]) {
+  const pantry = findPantryMatch(ingredientName, pantryItems);
+  if (!pantry) return false;
+  const requestedUnit = normalizeUnit(unit);
+  const pantryUnit = normalizeUnit(pantry.unit);
+  if (requestedUnit === pantryUnit) return safeNumber(pantry.quantity, 0) >= Math.max(0, safeNumber(quantity, 1));
+  return safeNumber(pantry.quantity, 0) > 0;
+}
+
+function buildIngredientFromParts(data: AppData, name: string, quantity = 1, unit = 'item', estimatedPrice?: number): MealIngredient {
+  const catalog = findCatalogMatch(name, data.priceCatalog);
+  const pantry = findPantryMatch(name, data.pantryItems);
+  const safeQuantity = Math.max(0, safeNumber(quantity, 1));
+  const safeUnit = clean(unit, catalog?.unit ?? pantry?.unit ?? 'item');
+  const pantryCovered = pantryCoversIngredient(name, safeQuantity, safeUnit, data.pantryItems);
+  const defaultEstimate = estimatedPrice ?? (catalog?.price ?? (pantry?.estimatedUnitPrice ? pantry.estimatedUnitPrice * Math.max(1, safeQuantity) : 0));
+  return {
+    id: uid('ing'),
+    name: catalog?.name ?? pantry?.name ?? clean(name, 'Ingredient'),
+    quantity: safeQuantity || 1,
+    unit: safeUnit,
+    category: normalizeCategory(catalog?.category ?? pantry?.category ?? 'Other'),
+    estimatedPrice: Math.max(0, safeNumber(defaultEstimate, 0)),
+    pantryCovered,
+    pantryItemId: pantryCovered ? pantry?.id : undefined,
+    priceCatalogItemId: catalog?.id,
+    store: catalog?.store,
+    notes: catalog ? `${catalog.brand ?? ''} ${catalog.size ?? ''}`.trim() : undefined
+  };
+}
+
+function refreshIngredientAgainstPantry(data: AppData, ingredient: MealIngredient): MealIngredient {
+  const refreshed = buildIngredientFromParts(data, ingredient.name, ingredient.quantity, ingredient.unit, ingredient.estimatedPrice);
+  return { ...ingredient, ...refreshed, id: ingredient.id, notes: ingredient.notes ?? refreshed.notes };
+}
+
+function ingredientToShoppingItem(meal: MealPlanItem, ingredient: MealIngredient): ShoppingItem {
+  const quantity = Math.max(1, safeNumber(ingredient.quantity, 1));
+  const estimatedUnitPrice = safeNumber(ingredient.estimatedPrice, 0) / quantity;
+  return {
+    id: uid('item'),
+    name: ingredient.name,
+    quantity,
+    estimatedPrice: estimatedUnitPrice,
+    checked: false,
+    store: ingredient.store,
+    category: ingredient.category,
+    notes: `${meal.name} · ${ingredient.quantity} ${ingredient.unit}${ingredient.notes ? ` · ${ingredient.notes}` : ''}`,
+    source: 'meal_plan',
+    sourceMealId: meal.id,
+    sourceIngredientId: ingredient.id
+  };
+}
+
+function inferIngredientNamesFromPhotoName(filename: string, data: AppData): string[] {
+  const base = filename.replace(/\.[a-z0-9]+$/i, ' ').replace(/[_-]+/g, ' ').toLowerCase();
+  const candidates = data.priceCatalog
+    .map((p) => p.name)
+    .concat(data.pantryItems.map((p) => p.name))
+    .filter((name, index, all) => all.findIndex((other) => other.toLowerCase() === name.toLowerCase()) === index);
+  const matches = candidates.filter((name) => base.includes(name.toLowerCase()));
+  if (matches.length) return matches.slice(0, 5);
+  const words = base.split(/\s+/).filter((word) => word.length > 2 && !['img', 'image', 'photo', 'ingredient', 'recipe', 'scan', 'jpg', 'jpeg', 'png', 'heic'].includes(word));
+  return words.length ? [words.map((word) => word[0].toUpperCase() + word.slice(1)).join(' ')] : [];
+}
+
+function parseIngredientLine(line: string): { name: string; quantity: number; unit: string; estimatedPrice?: number } | null {
+  const cleaned = clean(line);
+  if (!cleaned) return null;
+  const priceMatch = cleaned.match(/\$\s*([0-9]+(?:\.[0-9]{1,2})?)/);
+  const estimatedPrice = priceMatch ? Number(priceMatch[1]) : undefined;
+  const withoutPrice = cleaned.replace(/\$\s*[0-9]+(?:\.[0-9]{1,2})?/, '').replace(/[,;]+$/, '').trim();
+  const match = withoutPrice.match(/^([0-9]+(?:\.[0-9]+)?|\d+\/\d+)\s+([a-zA-Z]+)?\s*(.+)$/);
+  if (!match) return { name: withoutPrice, quantity: 1, unit: 'item', estimatedPrice };
+  const rawQuantity = match[1].includes('/') ? match[1].split('/').map(Number).reduce((a, b) => b ? a / b : a) : Number(match[1]);
+  return { name: clean(match[3], withoutPrice), quantity: Number.isFinite(rawQuantity) ? rawQuantity : 1, unit: clean(match[2], 'item'), estimatedPrice };
+}
+
 function pantryValue(items: PantryItem[]) {
   return arrayOf<PantryItem>(items, []).reduce((sum, item) => sum + safeNumber(item.quantity, 0) * safeNumber(item.estimatedUnitPrice, 0), 0);
 }
@@ -245,31 +358,46 @@ function mealPantryCoveredCost(meal: MealPlanItem) { return mealIngredients(meal
 function allMealGroceryCost(meals: MealPlanItem[]) { return arrayOf<MealPlanItem>(meals, []).reduce((sum, meal) => sum + mealGroceryCost(meal), 0); }
 function allMealTotalCost(meals: MealPlanItem[]) { return arrayOf<MealPlanItem>(meals, []).reduce((sum, meal) => sum + mealTotalCost(meal), 0); }
 
+function createMealFromRecipe(data: AppData, recipe: Recipe, date: string, mealType: MealType): MealPlanItem {
+  return {
+    id: uid('meal'),
+    name: recipe.name,
+    date,
+    mealType,
+    servings: Math.max(1, safeNumber(recipe.servings, 4)),
+    recipeId: recipe.id,
+    ingredients: arrayOf<MealIngredient>(recipe.ingredients, []).map((ingredient) => ({
+      ...refreshIngredientAgainstPantry(data, ingredient),
+      id: uid('ing')
+    })),
+    notes: recipe.notes ? `From recipe: ${recipe.notes}` : 'From Recipe Builder',
+    createdAt: new Date().toISOString()
+  };
+}
+
+function addMissingIngredientsToList(data: AppData, meal: MealPlanItem, listName: string): ShoppingList[] {
+  const refreshedMeal = { ...meal, ingredients: mealIngredients(meal).map((ingredient) => refreshIngredientAgainstPantry(data, ingredient)) };
+  const missing = refreshedMeal.ingredients.filter((ingredient) => !ingredient.pantryCovered);
+  let target = data.shoppingLists.find((list) => list.name.toLowerCase() === listName.toLowerCase());
+  const newItems = missing.map((ingredient) => ingredientToShoppingItem(refreshedMeal, ingredient));
+  return target
+    ? data.shoppingLists.map((list) => list.id === target?.id ? { ...list, items: [...list.items, ...newItems.filter((item) => !list.items.some((existing) => existing.sourceIngredientId === item.sourceIngredientId && existing.sourceMealId === item.sourceMealId))] } : list)
+    : [...data.shoppingLists, { id: uid('list'), name: listName, type: 'meal_plan' as const, sharedWith: data.users.map((u) => u.id), items: newItems }];
+}
+
 function buildIngredientFromPrompt(data: AppData): MealIngredient | null {
   const requestedName = clean(prompt('Ingredient name? Example: Chicken breast'));
   if (!requestedName) return null;
-  const catalog = findCatalogMatch(requestedName, data.priceCatalog);
-  const pantry = findPantryMatch(requestedName, data.pantryItems);
-  const quantity = promptNumber('Quantity needed for this meal?', 1);
-  const unit = clean(prompt('Unit? Example: lb, cup, can, package, tsp', pantry?.unit ?? 'item'), 'item');
-  const pantryCovered = pantry ? confirm(`${pantry.name} is already in pantry (${pantry.quantity} ${pantry.unit}, ${pantry.location}). Mark this ingredient as already accounted for?`) : false;
-  const category = normalizeCategory(catalog?.category ?? pantry?.category ?? prompt(`Category? ${PANTRY_CATEGORIES.join(', ')}`, pantry?.category ?? catalog?.category ?? 'Other'));
-  const defaultEstimate = catalog?.price ?? (pantry?.estimatedUnitPrice ? pantry.estimatedUnitPrice * quantity : 0);
-  const estimatedPrice = promptNumber('Estimated cost for this meal amount? Use 0 if it is already fully accounted for.', defaultEstimate);
-  return {
-    id: uid('ing'),
-    name: catalog?.name ?? pantry?.name ?? requestedName,
-    quantity: Number.isFinite(quantity) ? quantity : 1,
-    unit,
-    category,
-    estimatedPrice: Math.max(0, estimatedPrice),
-    pantryCovered,
-    pantryItemId: pantryCovered ? pantry?.id : undefined,
-    priceCatalogItemId: catalog?.id,
-    store: catalog?.store,
-    notes: catalog ? `${catalog.brand ?? ''} ${catalog.size ?? ''}`.trim() : undefined
-  };
+  const starter = buildIngredientFromParts(data, requestedName);
+  const quantity = promptNumber('Quantity needed for this meal or recipe?', starter.quantity);
+  const unit = clean(prompt('Unit? Example: lb, cup, can, package, tsp', starter.unit), starter.unit);
+  const estimatedPrice = promptNumber('Estimated total cost for this meal amount? Use 0 if it is fully accounted for.', starter.estimatedPrice);
+  const refreshed = buildIngredientFromParts(data, requestedName, quantity, unit, estimatedPrice);
+  const pantryNote = refreshed.pantryCovered ? 'already covered by pantry' : 'needs grocery list if used in a meal';
+  const finalPantryCovered = refreshed.pantryCovered || confirm(`${refreshed.name} is currently marked as ${pantryNote}. Mark it as pantry-covered anyway?`);
+  return { ...refreshed, pantryCovered: finalPantryCovered, pantryItemId: finalPantryCovered ? refreshed.pantryItemId : undefined };
 }
+
 
 function App() {
   const [data, setData] = useState<AppData>(() => {
@@ -298,6 +426,7 @@ function App() {
     { id: 'reconcile', label: 'Statement Import', icon: FileSearch, show: canViewFinance },
     { id: 'prices', label: 'Price Catalog', icon: Tags, show: true },
     { id: 'pantry', label: 'Pantry', icon: Archive, show: true },
+    { id: 'recipes', label: 'Recipe Builder', icon: BookOpen, show: true },
     { id: 'meal-planner', label: 'Meal Planner', icon: Utensils, show: true },
     { id: 'shopping', label: 'Shopping Lists', icon: ShoppingCart, show: true },
     { id: 'settings', label: 'Settings', icon: Settings, show: true }
@@ -308,7 +437,7 @@ function App() {
       <div className="brand-card"><div className="brand-mark">HL</div><div><h1>HomeLife</h1><p>Budget, shop, cook, and plan your household in one place.</p></div></div>
       <nav>{nav.filter((n) => n.show).map((n) => { const Icon = n.icon; return <button key={n.id} className={page === n.id ? 'active' : ''} onClick={() => setPage(n.id)}><Icon size={18} /> {n.label}</button>; })}</nav>
       {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this role.</div>}
-      <div className="version-badge">v2026.06.12.0009</div>
+      <div className="version-badge">v2026.06.12.0010</div>
     </aside>
     <main>
       <header className="topbar"><div><h2>{nav.find((n) => n.id === page)?.label ?? 'Dashboard'}</h2><p>Signed in as <strong>{currentUser.name}</strong> · {currentUser.role.replace('_', ' ')}</p></div><select value={data.currentUserId} onChange={(e) => update({ ...data, currentUserId: e.target.value })}>{data.users.map((u) => <option key={u.id} value={u.id}>{u.name} — {u.role.replace('_', ' ')}</option>)}</select></header>
@@ -319,6 +448,7 @@ function App() {
       {page === 'reconcile' && canViewFinance && <StatementImport data={data} update={update} />}
       {page === 'prices' && <PriceCatalog data={data} update={update} />}
       {page === 'pantry' && <Pantry data={data} update={update} />}
+      {page === 'recipes' && <RecipeBuilder data={data} update={update} />}
       {page === 'meal-planner' && <MealPlanner data={data} update={update} />}
       {page === 'shopping' && <Shopping data={data} update={update} />}
       {page === 'settings' && <SettingsPage data={data} update={update} />}
@@ -334,6 +464,7 @@ function Dashboard({ data, canViewFinance }: { data: AppData; canViewFinance: bo
     {canViewFinance ? <Card title="Household Balance" value={money(accountTotal)} detail="Across starter accounts" /> : <Card title="Finance Hidden" value="Private" detail="Your role can use shared lists, meals, pantry, and prices only." />}
     <Card title="Meal Plan Grocery Need" value={money(allMealGroceryCost(data.mealPlans))} detail={`${data.mealPlans.length} planned meal(s); ${money(allMealTotalCost(data.mealPlans))} total food value`} />
     <Card title="Pantry Estimate" value={money(pantryValue(data.pantryItems))} detail={`${data.pantryItems.length} pantry, freezer, spice, sauce, and dry-good items`} />
+    <Card title="Recipe Builder" value={`${data.recipes.length}`} detail="Manual or photo-assisted recipes ready for meal planning" />
     <Card title="Shopping Estimate" value={money(shoppingTotal)} detail={`${remainingItems} item(s) still needed`} />
     <Card title="Price Catalog" value={`${data.priceCatalog.length}`} detail="Local manual price records; API hook ready later" />
     {canViewFinance && <Card title="Statement Review" value={`${data.statementImports.length}`} detail="Sanitized rows only; raw files stay local" />}
@@ -452,6 +583,136 @@ function Pantry({ data, update }: { data: AppData; update: (d: AppData) => void 
   </div>;
 }
 
+
+function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) => void }) {
+  const [query, setQuery] = useState('');
+  const recipes = [...data.recipes]
+    .filter((recipe) => `${recipe.name} ${recipe.category ?? ''} ${recipe.notes ?? ''} ${recipe.ingredients.map((ingredient) => ingredient.name).join(' ')}`.toLowerCase().includes(query.toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const recipeTotal = (recipe: Recipe) => arrayOf<MealIngredient>(recipe.ingredients, []).reduce((sum, ingredient) => sum + safeNumber(ingredient.estimatedPrice, 0), 0);
+  const recipeMissingTotal = (recipe: Recipe) => arrayOf<MealIngredient>(recipe.ingredients, []).map((ingredient) => refreshIngredientAgainstPantry(data, ingredient)).filter((ingredient) => !ingredient.pantryCovered).reduce((sum, ingredient) => sum + safeNumber(ingredient.estimatedPrice, 0), 0);
+
+  function addRecipe() {
+    const name = clean(prompt('Recipe name? Example: Chicken tacos'));
+    if (!name) return;
+    const servings = promptNumber('Servings?', 4);
+    const category = clean(prompt('Recipe category? Breakfast, Dinner, Dessert, etc.', 'Dinner')) || undefined;
+    const ingredients: MealIngredient[] = [];
+    do {
+      const ingredient = buildIngredientFromPrompt(data);
+      if (ingredient) ingredients.push(ingredient);
+    } while (confirm('Add another ingredient to this recipe?'));
+    const instructions = clean(prompt('Cooking instructions? Optional', '')) || undefined;
+    const notes = clean(prompt('Recipe notes? Optional', '')) || undefined;
+    const timestamp = new Date().toISOString();
+    const recipe: Recipe = { id: uid('recipe'), name, servings: Math.max(1, servings), category, ingredients, instructions, notes, source: 'manual', createdAt: timestamp, updatedAt: timestamp };
+    update({ ...data, recipes: [...data.recipes, recipe] });
+  }
+
+  function deleteRecipe(id: string) {
+    if (confirm('Delete this recipe? Planned meals already created from it will stay in the meal planner.')) update({ ...data, recipes: data.recipes.filter((recipe) => recipe.id !== id) });
+  }
+
+  function addIngredient(recipeId: string) {
+    const ingredient = buildIngredientFromPrompt(data);
+    if (!ingredient) return;
+    update({ ...data, recipes: data.recipes.map((recipe) => recipe.id === recipeId ? { ...recipe, ingredients: [...recipe.ingredients, ingredient], updatedAt: new Date().toISOString() } : recipe) });
+  }
+
+  function deleteIngredient(recipeId: string, ingredientId: string) {
+    if (!confirm('Delete this ingredient from the recipe?')) return;
+    update({ ...data, recipes: data.recipes.map((recipe) => recipe.id === recipeId ? { ...recipe, ingredients: recipe.ingredients.filter((ingredient) => ingredient.id !== ingredientId), updatedAt: new Date().toISOString() } : recipe) });
+  }
+
+  function parseIngredientsFromText(text: string): MealIngredient[] {
+    return text.split(/\n|,/)
+      .map(parseIngredientLine)
+      .filter((item): item is { name: string; quantity: number; unit: string; estimatedPrice?: number } => Boolean(item && item.name))
+      .map((item) => buildIngredientFromParts(data, item.name, item.quantity, item.unit, item.estimatedPrice));
+  }
+
+  async function readPhoto(file: File): Promise<string | undefined> {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : undefined);
+      reader.onerror = () => resolve(undefined);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function ingredientsFromPhotoFile(file: File): Promise<MealIngredient[]> {
+    const detectedNames = inferIngredientNamesFromPhotoName(file.name, data);
+    const barcodeMatches: string[] = [];
+    try {
+      type BarcodeDetectorLike = new (options?: { formats?: string[] }) => { detect(source: ImageBitmapSource): Promise<Array<{ rawValue: string }>> };
+      const BarcodeDetectorCtor = (window as unknown as { BarcodeDetector?: BarcodeDetectorLike }).BarcodeDetector;
+      if (BarcodeDetectorCtor && typeof createImageBitmap === 'function') {
+        const image = await createImageBitmap(file);
+        const detector = new BarcodeDetectorCtor({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
+        const codes = await detector.detect(image);
+        codes.forEach((code) => {
+          const match = data.priceCatalog.find((item) => item.upc === code.rawValue || item.sku === code.rawValue);
+          if (match) barcodeMatches.push(match.name);
+        });
+      }
+    } catch (error) {
+      console.warn('Photo/barcode ingredient detection unavailable in this browser.', error);
+    }
+    const suggestion = [...barcodeMatches, ...detectedNames].filter(Boolean).join(', ');
+    const reviewed = clean(prompt('Review photo ingredient detection. Enter ingredient(s) separated by commas or lines. Example: 2 lb chicken breast, 1 bag rice', suggestion));
+    return parseIngredientsFromText(reviewed);
+  }
+
+  async function addRecipeFromPhoto(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.currentTarget.value = '';
+    if (!file) return;
+    const photoDataUrl = await readPhoto(file);
+    const ingredients = await ingredientsFromPhotoFile(file);
+    if (!ingredients.length) { alert('No ingredients were added from that photo.'); return; }
+    const name = clean(prompt('Recipe name for this photo?', file.name.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ')), 'Photo Recipe');
+    const servings = promptNumber('Servings?', 4);
+    const timestamp = new Date().toISOString();
+    const recipe: Recipe = { id: uid('recipe'), name, servings: Math.max(1, servings), category: 'Photo Import', ingredients, source: 'photo', photoName: file.name, photoDataUrl, notes: 'Built from photo-assisted ingredient capture.', createdAt: timestamp, updatedAt: timestamp };
+    update({ ...data, recipes: [...data.recipes, recipe] });
+  }
+
+  async function addPhotoIngredient(recipeId: string, event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.currentTarget.value = '';
+    if (!file) return;
+    const ingredients = await ingredientsFromPhotoFile(file);
+    if (!ingredients.length) return;
+    update({ ...data, recipes: data.recipes.map((recipe) => recipe.id === recipeId ? { ...recipe, ingredients: [...recipe.ingredients, ...ingredients], source: recipe.source === 'starter' ? 'manual' : recipe.source, photoName: recipe.photoName ?? file.name, updatedAt: new Date().toISOString() } : recipe) });
+  }
+
+  function planRecipe(recipe: Recipe) {
+    const date = clean(prompt('Meal date? YYYY-MM-DD', today()), today());
+    const mealType = (MEAL_TYPES.find((type) => type.toLowerCase() === clean(prompt(`Meal type? ${MEAL_TYPES.join(', ')}`, 'Dinner')).toLowerCase()) ?? 'Dinner') as MealType;
+    const meal = createMealFromRecipe(data, recipe, date, mealType);
+    update({ ...data, mealPlans: [...data.mealPlans, meal] });
+  }
+
+  function addRecipeMissingToGrocery(recipe: Recipe) {
+    const meal = createMealFromRecipe(data, recipe, today(), 'Dinner');
+    const missing = meal.ingredients.filter((ingredient) => !ingredient.pantryCovered);
+    if (!missing.length) { alert('All recipe ingredients are currently covered by pantry inventory.'); return; }
+    const defaultListName = data.shoppingLists.find((list) => list.type === 'meal_plan')?.name ?? 'Meal Plan Grocery List';
+    const listName = clean(prompt('Add missing recipe ingredients to which grocery list?', defaultListName), defaultListName);
+    update({ ...data, shoppingLists: addMissingIngredientsToList(data, meal, listName) });
+  }
+
+  function refreshRecipe(recipeId: string) {
+    update({ ...data, recipes: data.recipes.map((recipe) => recipe.id === recipeId ? { ...recipe, ingredients: recipe.ingredients.map((ingredient) => refreshIngredientAgainstPantry(data, ingredient)), updatedAt: new Date().toISOString() } : recipe) });
+  }
+
+  return <div className="recipe-page">
+    <div className="card wide"><div className="split"><div><h3>Recipe Builder</h3><p className="muted">Build reusable recipes manually or with a photo-assisted ingredient capture. Recipes can be planned as meals, then HomeLife compares the ingredients against pantry inventory and sends only missing items to the grocery list.</p></div><div className="settings-actions"><button className="primary" onClick={addRecipe}><PlusCircle size={16} /> Add Manual Recipe</button><label className="button-like"><Camera size={16} /> Add Recipe From Photo<input type="file" accept="image/*" capture="environment" onChange={addRecipeFromPhoto} hidden /></label></div></div><input className="full-input" placeholder="Search recipes, categories, notes, or ingredients..." value={query} onChange={(event) => setQuery(event.target.value)} /><div className="totals"><span>Recipes: <strong>{data.recipes.length}</strong></span><span>Visible: <strong>{recipes.length}</strong></span></div></div>
+    <div className="grid two">{recipes.map((recipe) => <div className="card recipe-card" key={recipe.id}>{recipe.photoDataUrl && <img className="recipe-photo" src={recipe.photoDataUrl} alt={`${recipe.name} import`} />}<div className="split"><div><p className="label">{recipe.category ?? 'Recipe'} · {recipe.servings} serving(s) · {recipe.source}</p><h3>{recipe.name}</h3><p>{recipe.notes}</p></div><button className="icon-danger" onClick={() => deleteRecipe(recipe.id)}><Trash2 size={14} /> Delete Recipe</button></div><div className="meal-costs"><span>Recipe value: <strong>{money(recipeTotal(recipe))}</strong></span><span>Need to buy now: <strong>{money(recipeMissingTotal(recipe))}</strong></span><span>Ingredients: <strong>{recipe.ingredients.length}</strong></span></div><div className="settings-actions"><button onClick={() => addIngredient(recipe.id)}>Add Ingredient</button><label className="button-like"><Camera size={16} /> Add Ingredient Photo<input type="file" accept="image/*" capture="environment" onChange={(event) => addPhotoIngredient(recipe.id, event)} hidden /></label><button onClick={() => refreshRecipe(recipe.id)}>Refresh Pantry Check</button><button onClick={() => planRecipe(recipe)}>Plan as Meal</button><button onClick={() => addRecipeMissingToGrocery(recipe)}>Missing to Grocery List</button></div>{recipe.instructions && <p className="instructions"><strong>Instructions:</strong> {recipe.instructions}</p>}<ul className="ingredient-list">{recipe.ingredients.map((ingredient) => { const refreshed = refreshIngredientAgainstPantry(data, ingredient); return <li key={ingredient.id}><div><strong>{ingredient.name}</strong><small>{ingredient.quantity} {ingredient.unit} · {ingredient.category ?? 'Other'} · {refreshed.pantryCovered ? 'pantry covered' : 'buy'} · {money(ingredient.estimatedPrice)} {ingredient.store ? `· ${ingredient.store}` : ''}</small></div><button className="icon-danger" onClick={() => deleteIngredient(recipe.id, ingredient.id)}><Trash2 size={14} /> Delete</button></li>; })}</ul></div>)}</div>
+  </div>;
+}
+
 function MealPlanner({ data, update }: { data: AppData; update: (d: AppData) => void }) {
   const meals = [...data.mealPlans].sort((a, b) => a.date.localeCompare(b.date) || a.mealType.localeCompare(b.mealType));
   function addMeal() {
@@ -478,31 +739,25 @@ function MealPlanner({ data, update }: { data: AppData; update: (d: AppData) => 
     update({ ...data, mealPlans: data.mealPlans.map((meal) => meal.id === mealId ? { ...meal, ingredients: meal.ingredients.filter((ingredient) => ingredient.id !== ingredientId) } : meal) });
   }
   function addMealToGroceryList(meal: MealPlanItem) {
-    const missing = meal.ingredients.filter((ingredient) => !ingredient.pantryCovered);
-    if (!missing.length) { alert('All ingredients are marked as pantry-covered. Nothing new to add to the grocery list.'); return; }
+    const refreshedMeal = { ...meal, ingredients: meal.ingredients.map((ingredient) => refreshIngredientAgainstPantry(data, ingredient)) };
+    const missing = refreshedMeal.ingredients.filter((ingredient) => !ingredient.pantryCovered);
+    if (!missing.length) { alert('All ingredients are covered by pantry inventory. Nothing new to add to the grocery list.'); return; }
     const defaultListName = data.shoppingLists.find((list) => list.type === 'meal_plan')?.name ?? 'Meal Plan Grocery List';
     const listName = clean(prompt('Add missing ingredients to which grocery list?', defaultListName), defaultListName);
-    let target = data.shoppingLists.find((list) => list.name.toLowerCase() === listName.toLowerCase());
-    const newItems: ShoppingItem[] = missing.map((ingredient) => ({
-      id: uid('item'),
-      name: ingredient.name,
-      quantity: 1,
-      estimatedPrice: ingredient.estimatedPrice,
-      checked: false,
-      store: ingredient.store,
-      category: ingredient.category,
-      notes: `${meal.name} · ${ingredient.quantity} ${ingredient.unit}${ingredient.notes ? ` · ${ingredient.notes}` : ''}`,
-      source: 'meal_plan',
-      sourceMealId: meal.id,
-      sourceIngredientId: ingredient.id
-    }));
-    const nextLists = target
-      ? data.shoppingLists.map((list) => list.id === target?.id ? { ...list, items: [...list.items, ...newItems.filter((item) => !list.items.some((existing) => existing.sourceIngredientId === item.sourceIngredientId))] } : list)
-      : [...data.shoppingLists, { id: uid('list'), name: listName, type: 'meal_plan' as const, sharedWith: data.users.map((u) => u.id), items: newItems }];
-    update({ ...data, shoppingLists: nextLists });
+    update({ ...data, mealPlans: data.mealPlans.map((item) => item.id === meal.id ? refreshedMeal : item), shoppingLists: addMissingIngredientsToList(data, refreshedMeal, listName) });
+  }
+  function planFromRecipe() {
+    if (!data.recipes.length) { alert('Add a recipe in Recipe Builder first.'); return; }
+    const selection = clean(prompt(`Recipe to plan? Enter name or number:\n${data.recipes.map((recipe, index) => `${index + 1}. ${recipe.name}`).join('\n')}`, '1'), '1');
+    const recipe = data.recipes[Number(selection) - 1] ?? data.recipes.find((item) => item.name.toLowerCase() === selection.toLowerCase());
+    if (!recipe) { alert('Recipe not found.'); return; }
+    const date = clean(prompt('Meal date? YYYY-MM-DD', today()), today());
+    const mealType = (MEAL_TYPES.find((type) => type.toLowerCase() === clean(prompt(`Meal type? ${MEAL_TYPES.join(', ')}`, 'Dinner')).toLowerCase()) ?? 'Dinner') as MealType;
+    const meal = createMealFromRecipe(data, recipe, date, mealType);
+    update({ ...data, mealPlans: [...data.mealPlans, meal] });
   }
   return <div className="meal-page">
-    <div className="card wide"><div className="split"><div><h3>Meal Planner</h3><p className="muted">Plan meals, mark which ingredients are already covered by pantry inventory, and send only the missing ingredients to a grocery list. Each meal shows total value and new grocery cost.</p></div><div className="settings-actions"><button className="primary" onClick={addMeal}><CookingPot size={16} /> Add Meal</button></div></div><div className="totals"><span>Planned meals: <strong>{data.mealPlans.length}</strong></span><span>Total food value: <strong>{money(allMealTotalCost(data.mealPlans))}</strong></span><span>New grocery cost: <strong>{money(allMealGroceryCost(data.mealPlans))}</strong></span></div></div>
+    <div className="card wide"><div className="split"><div><h3>Meal Planner</h3><p className="muted">Plan meals manually or from Recipe Builder, refresh pantry coverage, and send only the missing ingredients to a grocery list. Each meal shows total value and new grocery cost.</p></div><div className="settings-actions"><button className="primary" onClick={addMeal}><CookingPot size={16} /> Add Meal</button><button onClick={planFromRecipe}><BookOpen size={16} /> Plan From Recipe</button></div></div><div className="totals"><span>Planned meals: <strong>{data.mealPlans.length}</strong></span><span>Total food value: <strong>{money(allMealTotalCost(data.mealPlans))}</strong></span><span>New grocery cost: <strong>{money(allMealGroceryCost(data.mealPlans))}</strong></span></div></div>
     <div className="grid two">{meals.map((meal) => <div className="card meal-card" key={meal.id}><div className="split"><div><p className="label">{meal.date} · {meal.mealType} · {meal.servings} serving(s)</p><h3>{meal.name}</h3><p>{meal.notes}</p></div><button className="icon-danger" onClick={() => deleteMeal(meal.id)}><Trash2 size={14} /> Delete Meal</button></div><div className="meal-costs"><span>Total: <strong>{money(mealTotalCost(meal))}</strong></span><span>Pantry covered: <strong>{money(mealPantryCoveredCost(meal))}</strong></span><span>Need to buy: <strong>{money(mealGroceryCost(meal))}</strong></span></div><div className="settings-actions"><button onClick={() => addIngredient(meal.id)}>Add Ingredient</button><button onClick={() => addMealToGroceryList(meal)}>Add Missing to Grocery List</button></div><ul className="ingredient-list">{meal.ingredients.map((ingredient) => <li key={ingredient.id}><div><strong>{ingredient.name}</strong><small>{ingredient.quantity} {ingredient.unit} · {ingredient.category ?? 'Other'} · {ingredient.pantryCovered ? 'pantry covered' : 'buy'} · {money(ingredient.estimatedPrice)} {ingredient.store ? `· ${ingredient.store}` : ''}</small></div><button className="icon-danger" onClick={() => deleteIngredient(meal.id, ingredient.id)}><Trash2 size={14} /> Delete</button></li>)}</ul></div>)}</div>
   </div>;
 }
@@ -561,7 +816,7 @@ function SettingsPage({ data, update }: { data: AppData; update: (d: AppData) =>
   function exportBackup() { downloadText('homelife-backup.json', backup); }
   function importBackup(event: React.ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file) return; file.text().then((text) => update(normalizeData(JSON.parse(text)))).catch(() => alert('Unable to import JSON backup.')); }
   function reset() { if (!confirm('Reset local HomeLife demo data?')) return; resetData(); window.location.reload(); }
-  return <div className="card wide"><h3>Settings & Permissions</h3><p className="muted">Demo roles hide finance pages in the interface now. Meal planner, pantry, shopping, and prices remain visible/shared so the family can plan groceries without exposing the register.</p><table><thead><tr><th>User</th><th>Role</th><th>Register/Budget/Debt</th><th>Statement Import</th><th>Meals/Pantry/Shopping/Prices</th></tr></thead><tbody>{data.users.map(u => <tr key={u.id}><td>{u.name}</td><td>{u.role.replace('_', ' ')}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>Visible/shared</td></tr>)}</tbody></table><div className="settings-actions"><button onClick={exportBackup}>Export JSON Backup</button><label className="button-like">Import JSON Backup<input type="file" accept="application/json" onChange={importBackup} hidden /></label><button className="danger" onClick={reset}>Reset Demo Data</button></div></div>;
+  return <div className="card wide"><h3>Settings & Permissions</h3><p className="muted">Demo roles hide finance pages in the interface now. Recipe builder, meal planner, pantry, shopping, and prices remain visible/shared so the family can plan groceries without exposing the register.</p><table><thead><tr><th>User</th><th>Role</th><th>Register/Budget/Debt</th><th>Statement Import</th><th>Recipes/Meals/Pantry/Shopping/Prices</th></tr></thead><tbody>{data.users.map(u => <tr key={u.id}><td>{u.name}</td><td>{u.role.replace('_', ' ')}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>Visible/shared</td></tr>)}</tbody></table><div className="settings-actions"><button onClick={exportBackup}>Export JSON Backup</button><label className="button-like">Import JSON Backup<input type="file" accept="application/json" onChange={importBackup} hidden /></label><button className="danger" onClick={reset}>Reset Demo Data</button></div></div>;
 }
 
 class HomeLifeErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {

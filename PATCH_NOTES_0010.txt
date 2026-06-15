@@ -1,0 +1,18 @@
+HomeLife v2026.06.12.0010
+
+Added Recipe Builder.
+
+Included changes:
+- New Recipe Builder page.
+- Add manual recipes and delete recipes.
+- Add/delete recipe ingredients.
+- Photo-assisted recipe creation from camera/file upload.
+- Photo-assisted ingredient add from camera/file upload.
+- Recipe ingredients are matched against the price catalog and pantry.
+- Recipe Builder can plan a recipe directly into Meal Planner.
+- Meal Planner can select an existing recipe and create a planned meal.
+- Planned meals refresh pantry coverage before sending missing items to shopping.
+- Missing recipe/meal ingredients can be added to the grocery list.
+- Existing price catalog restore, register add/delete, root/docs/dist deployment compatibility retained.
+
+Note: photo capture is client-side and privacy-first. In browsers that support barcode detection, HomeLife attempts a UPC match against the local price catalog. Otherwise it uses the photo/file name as a starter and asks the user to review the ingredient names before adding them. Full cloud OCR can be added later with an approved backend/API.

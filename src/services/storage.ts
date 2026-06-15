@@ -2,7 +2,7 @@ import type { AppData, PriceCatalogItem } from '../types';
 
 export const STORAGE_KEY = 'homelife-data-v2';
 const LEGACY_KEYS = ['homelife-data-v1', 'homelife-data', 'homelifeData'];
-const CATALOG_RESTORE_FLAG = 'homelife-catalog-restored-20260615-0008';
+const CATALOG_RESTORE_FLAG = 'homelife-catalog-restored-20260615-0010';
 
 const DEFAULT_PRICE_CATALOG: PriceCatalogItem[] = [
   {
@@ -2199,6 +2199,25 @@ export const DEFAULT_DATA: AppData = {
     { id: 'pantry-rice', name: 'White Rice', category: 'Dry Goods', quantity: 5, unit: 'lb', location: 'Pantry', estimatedUnitPrice: 0.98, lastUpdated: '2026-06-12' },
     { id: 'pantry-salt', name: 'Salt', category: 'Spices', quantity: 1, unit: 'container', location: 'Spice Cabinet', estimatedUnitPrice: 1.24, lastUpdated: '2026-06-12' },
     { id: 'pantry-chicken', name: 'Frozen Chicken Breast', category: 'Meats', quantity: 2, unit: 'lb', location: 'Freezer', estimatedUnitPrice: 3.25, lastUpdated: '2026-06-12' }
+  ],
+  recipes: [
+    {
+      id: 'recipe-chicken-tacos',
+      name: 'Chicken Tacos',
+      servings: 5,
+      category: 'Dinner',
+      source: 'starter',
+      createdAt: '2026-06-15T00:00:00.000Z',
+      updatedAt: '2026-06-15T00:00:00.000Z',
+      notes: 'Starter recipe to show pantry and meal planner matching.',
+      instructions: 'Cook chicken, season, warm tortillas, and top with cheese and sour cream.',
+      ingredients: [
+        { id: 'recipe-chicken-tacos-ing-1', name: 'Chicken Breast', quantity: 2, unit: 'lb', category: 'Meats', estimatedPrice: 7.50, pantryCovered: false },
+        { id: 'recipe-chicken-tacos-ing-2', name: 'Tortillas', quantity: 1, unit: 'package', category: 'Dry Goods', estimatedPrice: 2.48, pantryCovered: false },
+        { id: 'recipe-chicken-tacos-ing-3', name: 'Shredded Cheddar Cheese', quantity: 1, unit: 'bag', category: 'Dairy', estimatedPrice: 3.98, pantryCovered: false },
+        { id: 'recipe-chicken-tacos-ing-4', name: 'Sour Cream', quantity: 1, unit: 'tub', category: 'Dairy', estimatedPrice: 1.98, pantryCovered: false }
+      ]
+    }
   ],
   mealPlans: []
 };

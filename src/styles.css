@@ -103,3 +103,8 @@ h4 { margin: 1.25rem 0 0.5rem; color: #1e4d2b; }
   margin: 4rem auto;
   max-width: 760px;
 }
+
+.recipe-page { display: grid; gap: 1rem; }
+.recipe-card .settings-actions { margin-top: 0.75rem; }
+.recipe-photo { width: 100%; max-height: 210px; object-fit: cover; border-radius: 16px; border: 1px solid #d9e7d9; margin-bottom: 0.75rem; background: #f6fbf6; }
+.instructions { background: #f7fbf7; border: 1px solid #e2eee2; border-radius: 14px; padding: 0.75rem; }

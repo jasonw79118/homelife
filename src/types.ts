@@ -141,6 +141,23 @@ export interface MealIngredient {
   notes?: string;
 }
 
+export type RecipeSource = 'manual' | 'photo' | 'starter';
+
+export interface Recipe {
+  id: string;
+  name: string;
+  servings: number;
+  category?: string;
+  ingredients: MealIngredient[];
+  instructions?: string;
+  notes?: string;
+  source: RecipeSource;
+  photoName?: string;
+  photoDataUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MealPlanItem {
   id: string;
   name: string;
@@ -149,6 +166,7 @@ export interface MealPlanItem {
   servings: number;
   ingredients: MealIngredient[];
   notes?: string;
+  recipeId?: string;
   createdAt: string;
 }
 
@@ -163,5 +181,6 @@ export interface AppData {
   priceCatalog: PriceCatalogItem[];
   statementImports: StatementImportRow[];
   pantryItems: PantryItem[];
+  recipes: Recipe[];
   mealPlans: MealPlanItem[];
 }
