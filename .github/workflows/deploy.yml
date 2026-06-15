@@ -26,30 +26,32 @@ jobs:
         with:
           node-version: 20
 
-      - name: Setup pnpm to avoid npm install runner bug
+      - name: Setup pnpm clean installer
         run: |
           corepack enable
           corepack prepare pnpm@9.15.4 --activate
           node --version
           pnpm --version
 
-      - name: Install dependencies cleanly
+      - name: Install dependencies from a clean workspace
         run: |
           rm -rf node_modules package-lock.json pnpm-lock.yaml "$RUNNER_TEMP/pnpm-store"
           pnpm config set registry https://registry.npmjs.org/
           pnpm config set store-dir "$RUNNER_TEMP/pnpm-store"
           pnpm install --no-frozen-lockfile --prefer-offline=false
 
-      - name: Build
+      - name: Build HomeLife
         run: pnpm run build
 
-      - name: Copy SPA fallback
-        run: cp dist/index.html dist/404.html
+      - name: Add Pages fallbacks
+        run: |
+          cp dist/index.html dist/404.html
+          touch dist/.nojekyll
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload HomeLife Pages artifact
+      - name: Upload single Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           name: homelife-pages

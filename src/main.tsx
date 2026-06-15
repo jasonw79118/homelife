@@ -14,7 +14,8 @@ import type {
   ShoppingItem,
   ShoppingList,
   StatementImportRow,
-  Transaction
+  Transaction,
+  User
 } from './types';
 import './styles.css';
 
@@ -79,22 +80,144 @@ function normalizeCategory(value: string | null | undefined): PantryCategory {
   return match ?? 'Other';
 }
 
+function arrayOf<T>(value: unknown, fallback: T[]): T[] {
+  return Array.isArray(value) ? value as T[] : fallback;
+}
+
+function safeNumber(value: unknown, fallback = 0): number {
+  const parsed = typeof value === 'number' ? value : Number(String(value ?? '').replace(/[$,]/g, '').trim());
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function safeRole(value: unknown): Role {
+  return financeRoles.includes(value as Role) || ['household_member', 'viewer', 'child'].includes(String(value)) ? value as Role : 'household_member';
+}
+
 function normalizeData(data: Partial<AppData> | null | undefined): AppData {
   const safe = data ?? {};
   const fallback = DEFAULT_DATA;
-  const users = safe.users?.length ? safe.users : fallback.users;
+  const fallbackUsers = fallback.users;
+  const users = arrayOf<User>(safe.users, fallbackUsers).map((u, index) => ({
+    id: clean(u?.id, `user-${index + 1}`),
+    name: clean(u?.name, index === 0 ? 'Owner' : 'Household Member'),
+    role: safeRole(u?.role)
+  })).filter((u) => u.id && u.name);
+  const normalizedUsers = users.length ? users : fallbackUsers;
+
+  const accounts = arrayOf(safe.accounts, fallback.accounts).map((a, index) => ({
+    id: clean(a?.id, `acct-${index + 1}`),
+    name: clean(a?.name, index === 0 ? 'Checking' : `Account ${index + 1}`),
+    type: clean(a?.type, 'checking'),
+    startingBalance: safeNumber(a?.startingBalance, 0)
+  })).filter((a) => a.id && a.name);
+  const normalizedAccounts = accounts.length ? accounts : fallback.accounts;
+  const primaryAccountId = normalizedAccounts[0]?.id ?? 'acct-checking';
+
+  const priceCatalog = mergeDefaultPriceCatalog(arrayOf<PriceCatalogItem>(safe.priceCatalog, []))
+    .map((p, index) => ({
+      ...p,
+      id: clean(p?.id, `price-${index + 1}`),
+      store: clean(p?.store, 'Other'),
+      name: clean(p?.name, `Catalog Item ${index + 1}`),
+      price: safeNumber(p?.price, 0),
+      lastChecked: clean(p?.lastChecked, today()),
+      category: clean(p?.category, 'Other')
+    }))
+    .filter((p) => p.id && p.name);
+
+  const shoppingLists = arrayOf<ShoppingList>(safe.shoppingLists, fallback.shoppingLists).map((list, index) => ({
+    id: clean(list?.id, `list-${index + 1}`),
+    name: clean(list?.name, index === 0 ? 'Main Grocery List' : `Shopping List ${index + 1}`),
+    type: (['custom', 'grocery', 'school', 'meal_plan', 'sams', 'warehouse'].includes(String(list?.type)) ? list.type : 'custom') as ShoppingList['type'],
+    sharedWith: arrayOf<string>(list?.sharedWith, normalizedUsers.map((u) => u.id)),
+    items: arrayOf<ShoppingItem>(list?.items, []).map((item, itemIndex) => ({
+      id: clean(item?.id, `item-${index + 1}-${itemIndex + 1}`),
+      name: clean(item?.name, `Item ${itemIndex + 1}`),
+      quantity: safeNumber(item?.quantity, 1),
+      estimatedPrice: safeNumber(item?.estimatedPrice, safeNumber(item?.actualPrice, 0)),
+      actualPrice: item?.actualPrice === undefined ? undefined : safeNumber(item.actualPrice, 0),
+      checked: Boolean(item?.checked),
+      store: item?.store,
+      category: item?.category,
+      notes: item?.notes,
+      source: item?.source,
+      sourceMealId: item?.sourceMealId,
+      sourceIngredientId: item?.sourceIngredientId
+    })).filter((item) => item.id && item.name)
+  })).filter((list) => list.id && list.name);
+
   return {
-    users,
-    currentUserId: safe.currentUserId && users.some((u) => u.id === safe.currentUserId) ? safe.currentUserId : users[0].id,
-    accounts: safe.accounts ?? fallback.accounts,
-    transactions: safe.transactions ?? fallback.transactions,
-    budgetCategories: safe.budgetCategories ?? fallback.budgetCategories,
-    debts: safe.debts ?? fallback.debts,
-    shoppingLists: safe.shoppingLists ?? fallback.shoppingLists,
-    priceCatalog: (safe.priceCatalog && safe.priceCatalog.length > 0) ? safe.priceCatalog : fallback.priceCatalog,
-    statementImports: safe.statementImports ?? fallback.statementImports,
-    pantryItems: safe.pantryItems ?? fallback.pantryItems,
-    mealPlans: safe.mealPlans ?? fallback.mealPlans
+    users: normalizedUsers,
+    currentUserId: safe.currentUserId && normalizedUsers.some((u) => u.id === safe.currentUserId) ? safe.currentUserId : normalizedUsers[0].id,
+    accounts: normalizedAccounts,
+    transactions: arrayOf<Transaction>(safe.transactions, fallback.transactions).map((t, index) => ({
+      id: clean(t?.id, `txn-${index + 1}`),
+      accountId: normalizedAccounts.some((a) => a.id === t?.accountId) ? t.accountId : primaryAccountId,
+      date: clean(t?.date, today()),
+      description: clean(t?.description, 'Transaction'),
+      category: clean(t?.category, 'Uncategorized'),
+      amount: safeNumber(t?.amount, 0),
+      cleared: Boolean(t?.cleared)
+    })),
+    budgetCategories: arrayOf(safe.budgetCategories, fallback.budgetCategories).map((c, index) => ({
+      id: clean(c?.id, `cat-${index + 1}`),
+      name: clean(c?.name, `Category ${index + 1}`),
+      monthlyBudget: safeNumber(c?.monthlyBudget, 0)
+    })),
+    debts: arrayOf(safe.debts, fallback.debts).map((d, index) => ({
+      id: clean(d?.id, `debt-${index + 1}`),
+      name: clean(d?.name, `Debt ${index + 1}`),
+      balance: safeNumber(d?.balance, 0),
+      payment: safeNumber(d?.payment, 0),
+      rate: safeNumber(d?.rate, 0)
+    })),
+    shoppingLists: shoppingLists.length ? shoppingLists : fallback.shoppingLists,
+    priceCatalog,
+    statementImports: arrayOf<StatementImportRow>(safe.statementImports, fallback.statementImports).map((row, index) => ({
+      id: clean(row?.id, `stmt-${index + 1}`),
+      date: clean(row?.date, today()),
+      description: clean(row?.description, 'Imported transaction'),
+      amount: safeNumber(row?.amount, 0),
+      type: row?.type === 'credit' ? 'credit' : 'debit',
+      matchStatus: (['matched', 'possible', 'missing_from_register'].includes(String(row?.matchStatus)) ? row.matchStatus : 'missing_from_register') as StatementImportRow['matchStatus'],
+      matchedTransactionId: row?.matchedTransactionId
+    })),
+    pantryItems: arrayOf<PantryItem>(safe.pantryItems, fallback.pantryItems).map((item, index) => ({
+      id: clean(item?.id, `pantry-${index + 1}`),
+      name: clean(item?.name, `Pantry Item ${index + 1}`),
+      category: normalizeCategory(item?.category),
+      quantity: safeNumber(item?.quantity, 0),
+      unit: clean(item?.unit, 'item'),
+      location: clean(item?.location, 'Pantry'),
+      estimatedUnitPrice: item?.estimatedUnitPrice === undefined ? undefined : safeNumber(item.estimatedUnitPrice, 0),
+      priceCatalogItemId: item?.priceCatalogItemId,
+      store: item?.store,
+      expirationDate: item?.expirationDate,
+      notes: item?.notes,
+      lastUpdated: clean(item?.lastUpdated, today())
+    })),
+    mealPlans: arrayOf<MealPlanItem>(safe.mealPlans, fallback.mealPlans).map((meal, index) => ({
+      id: clean(meal?.id, `meal-${index + 1}`),
+      name: clean(meal?.name, `Meal ${index + 1}`),
+      date: clean(meal?.date, today()),
+      mealType: (MEAL_TYPES.includes(meal?.mealType as MealType) ? meal.mealType : 'Dinner') as MealType,
+      servings: safeNumber(meal?.servings, 1),
+      ingredients: arrayOf<MealIngredient>(meal?.ingredients, []).map((ing, ingIndex) => ({
+        id: clean(ing?.id, `ing-${index + 1}-${ingIndex + 1}`),
+        name: clean(ing?.name, `Ingredient ${ingIndex + 1}`),
+        quantity: safeNumber(ing?.quantity, 1),
+        unit: clean(ing?.unit, 'item'),
+        category: ing?.category,
+        estimatedPrice: safeNumber(ing?.estimatedPrice, 0),
+        pantryCovered: Boolean(ing?.pantryCovered),
+        pantryItemId: ing?.pantryItemId,
+        priceCatalogItemId: ing?.priceCatalogItemId,
+        store: ing?.store,
+        notes: ing?.notes
+      })),
+      notes: meal?.notes,
+      createdAt: clean(meal?.createdAt, today())
+    }))
   };
 }
 
@@ -111,15 +234,16 @@ function findPantryMatch(name: string, pantryItems: PantryItem[]) {
 }
 
 function pantryValue(items: PantryItem[]) {
-  return items.reduce((sum, item) => sum + item.quantity * (item.estimatedUnitPrice ?? 0), 0);
+  return arrayOf<PantryItem>(items, []).reduce((sum, item) => sum + safeNumber(item.quantity, 0) * safeNumber(item.estimatedUnitPrice, 0), 0);
 }
-function listEstimatedTotal(list: ShoppingList) { return list.items.reduce((sum, item) => sum + item.quantity * item.estimatedPrice, 0); }
-function listActualTotal(list: ShoppingList) { return list.items.reduce((sum, item) => sum + item.quantity * (item.actualPrice ?? item.estimatedPrice), 0); }
-function mealTotalCost(meal: MealPlanItem) { return meal.ingredients.reduce((sum, item) => sum + item.estimatedPrice, 0); }
-function mealGroceryCost(meal: MealPlanItem) { return meal.ingredients.filter((item) => !item.pantryCovered).reduce((sum, item) => sum + item.estimatedPrice, 0); }
-function mealPantryCoveredCost(meal: MealPlanItem) { return meal.ingredients.filter((item) => item.pantryCovered).reduce((sum, item) => sum + item.estimatedPrice, 0); }
-function allMealGroceryCost(meals: MealPlanItem[]) { return meals.reduce((sum, meal) => sum + mealGroceryCost(meal), 0); }
-function allMealTotalCost(meals: MealPlanItem[]) { return meals.reduce((sum, meal) => sum + mealTotalCost(meal), 0); }
+function listEstimatedTotal(list: ShoppingList) { return arrayOf<ShoppingItem>(list.items, []).reduce((sum, item) => sum + safeNumber(item.quantity, 1) * safeNumber(item.estimatedPrice, 0), 0); }
+function listActualTotal(list: ShoppingList) { return arrayOf<ShoppingItem>(list.items, []).reduce((sum, item) => sum + safeNumber(item.quantity, 1) * safeNumber(item.actualPrice ?? item.estimatedPrice, 0), 0); }
+function mealIngredients(meal: MealPlanItem) { return arrayOf<MealIngredient>(meal.ingredients, []); }
+function mealTotalCost(meal: MealPlanItem) { return mealIngredients(meal).reduce((sum, item) => sum + safeNumber(item.estimatedPrice, 0), 0); }
+function mealGroceryCost(meal: MealPlanItem) { return mealIngredients(meal).filter((item) => !item.pantryCovered).reduce((sum, item) => sum + safeNumber(item.estimatedPrice, 0), 0); }
+function mealPantryCoveredCost(meal: MealPlanItem) { return mealIngredients(meal).filter((item) => item.pantryCovered).reduce((sum, item) => sum + safeNumber(item.estimatedPrice, 0), 0); }
+function allMealGroceryCost(meals: MealPlanItem[]) { return arrayOf<MealPlanItem>(meals, []).reduce((sum, meal) => sum + mealGroceryCost(meal), 0); }
+function allMealTotalCost(meals: MealPlanItem[]) { return arrayOf<MealPlanItem>(meals, []).reduce((sum, meal) => sum + mealTotalCost(meal), 0); }
 
 function buildIngredientFromPrompt(data: AppData): MealIngredient | null {
   const requestedName = clean(prompt('Ingredient name? Example: Chicken breast'));
@@ -184,7 +308,7 @@ function App() {
       <div className="brand-card"><div className="brand-mark">HL</div><div><h1>HomeLife</h1><p>Budget, shop, cook, and plan your household in one place.</p></div></div>
       <nav>{nav.filter((n) => n.show).map((n) => { const Icon = n.icon; return <button key={n.id} className={page === n.id ? 'active' : ''} onClick={() => setPage(n.id)}><Icon size={18} /> {n.label}</button>; })}</nav>
       {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this role.</div>}
-      <div className="version-badge">v2026.06.12.0007</div>
+      <div className="version-badge">v2026.06.12.0008</div>
     </aside>
     <main>
       <header className="topbar"><div><h2>{nav.find((n) => n.id === page)?.label ?? 'Dashboard'}</h2><p>Signed in as <strong>{currentUser.name}</strong> · {currentUser.role.replace('_', ' ')}</p></div><select value={data.currentUserId} onChange={(e) => update({ ...data, currentUserId: e.target.value })}>{data.users.map((u) => <option key={u.id} value={u.id}>{u.name} — {u.role.replace('_', ' ')}</option>)}</select></header>
@@ -440,6 +564,25 @@ function SettingsPage({ data, update }: { data: AppData; update: (d: AppData) =>
   return <div className="card wide"><h3>Settings & Permissions</h3><p className="muted">Demo roles hide finance pages in the interface now. Meal planner, pantry, shopping, and prices remain visible/shared so the family can plan groceries without exposing the register.</p><table><thead><tr><th>User</th><th>Role</th><th>Register/Budget/Debt</th><th>Statement Import</th><th>Meals/Pantry/Shopping/Prices</th></tr></thead><tbody>{data.users.map(u => <tr key={u.id}><td>{u.name}</td><td>{u.role.replace('_', ' ')}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>Visible/shared</td></tr>)}</tbody></table><div className="settings-actions"><button onClick={exportBackup}>Export JSON Backup</button><label className="button-like">Import JSON Backup<input type="file" accept="application/json" onChange={importBackup} hidden /></label><button className="danger" onClick={reset}>Reset Demo Data</button></div></div>;
 }
 
+class HomeLifeErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return <div className="app-shell single-panel"><main><div className="card wide boot-error"><h1>HomeLife could not finish loading.</h1><p>The app protected your screen instead of staying blank. This is usually caused by older saved browser data from a prior HomeLife build.</p><p className="muted">Error: {this.state.error.message}</p><div className="settings-actions"><button className="primary" onClick={() => { resetData(); window.location.reload(); }}>Repair local data and reload</button><button onClick={() => window.location.reload()}>Reload</button></div></div></main></div>;
+  }
+}
+
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('HomeLife could not start because index.html is missing <div id="root"></div>.');
-createRoot(rootElement).render(<React.StrictMode><App /></React.StrictMode>);
+try {
+  createRoot(rootElement).render(<React.StrictMode><HomeLifeErrorBoundary><App /></HomeLifeErrorBoundary></React.StrictMode>);
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  rootElement.innerHTML = `<main class="boot-error"><h1>HomeLife could not start.</h1><p>${message}</p><button onclick="localStorage.clear(); location.reload();">Repair local data and reload</button></main>`;
+}

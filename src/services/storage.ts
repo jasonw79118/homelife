@@ -2,7 +2,7 @@ import type { AppData, PriceCatalogItem } from '../types';
 
 export const STORAGE_KEY = 'homelife-data-v2';
 const LEGACY_KEYS = ['homelife-data-v1', 'homelife-data', 'homelifeData'];
-const CATALOG_RESTORE_FLAG = 'homelife-catalog-restored-20260615-0007';
+const CATALOG_RESTORE_FLAG = 'homelife-catalog-restored-20260615-0008';
 
 const DEFAULT_PRICE_CATALOG: PriceCatalogItem[] = [
   {
@@ -2238,7 +2238,7 @@ export function loadData(): Partial<AppData> | null {
 
   const primary = parsed[0];
   const legacyPriceCatalog = parsed.flatMap((item) => item.priceCatalog ?? []);
-  const shouldRestoreCatalog = localStorage.getItem(CATALOG_RESTORE_FLAG) !== 'true' && legacyPriceCatalog.length < DEFAULT_PRICE_CATALOG.length;
+  const shouldRestoreCatalog = legacyPriceCatalog.length < DEFAULT_PRICE_CATALOG.length;
   if (shouldRestoreCatalog) {
     const repaired = {
       ...primary,

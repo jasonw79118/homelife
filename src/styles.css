@@ -92,3 +92,14 @@ td small { color: #6b7f70; }
 .version-badge { margin-top: auto; padding: 0.75rem 0.25rem 0; font-size: 0.78rem; color: #58705a; opacity: 0.85; }
 .empty-state { padding: 1rem; background: #f6fbf6; border: 1px dashed #b9cfbb; border-radius: 12px; color: #48604a; }
 h4 { margin: 1.25rem 0 0.5rem; color: #1e4d2b; }
+
+.single-panel {
+  display: block;
+  min-height: 100vh;
+  padding: 2rem;
+}
+
+.boot-error {
+  margin: 4rem auto;
+  max-width: 760px;
+}

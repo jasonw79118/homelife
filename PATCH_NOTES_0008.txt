@@ -1,0 +1,17 @@
+HomeLife v2026.06.12.0008
+
+Fix focus: live GitHub Pages page staying on the HomeLife loading screen / showing no app.
+
+Changes:
+1. Added a defensive data migration layer so old localStorage data from earlier HomeLife builds cannot crash the dashboard, shopping list, meal planner, pantry, statement import, budget, debt, or register screens.
+2. Added an on-screen error recovery panel. If a saved-data issue ever occurs, HomeLife now shows a repair button instead of a blank/loading page.
+3. Restored/merged the starter price catalog every time saved data has fewer records than the starter catalog, instead of only doing the repair once.
+4. Built production output successfully and included it in both /dist and /docs.
+5. Added /docs/.nojekyll and /dist/.nojekyll.
+6. Updated GitHub Actions to upload exactly one Pages artifact named homelife-pages.
+7. Version badge updated to v2026.06.12.0008.
+
+Deployment notes:
+- Preferred: Settings -> Pages -> Source = GitHub Actions, keep only .github/workflows/deploy.yml.
+- Alternate branch deploy: Settings -> Pages -> Source = Deploy from branch, Branch = main, Folder = /docs.
+- Do not use main / root for GitHub Pages because root index.html is the Vite development entry file.
