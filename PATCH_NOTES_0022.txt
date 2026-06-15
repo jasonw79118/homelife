@@ -1,0 +1,15 @@
+HomeLife v2026.06.12.0022
+
+Changes in this patch:
+- Removed the default United Supermarkets starter catalog records.
+- Added an expanded Walmart starter catalog with 218 planning price records across dairy, meats, produce, dry goods, canned goods, sauces, baking goods, spices, frozen foods, snacks, drinks, and household items.
+- Added automatic cleanup for legacy United starter records that were previously seeded by HomeLife.
+- Preserves manually-added custom store records, so United/Sam's/Target/etc. can still be added as needed.
+- Added a Recipe Builder store selector so recipe pricing is no longer locked to one store.
+- Recipe ingredient matching now searches the selected recipe store first, then falls back to other custom catalog records only when needed.
+- Recipe ingredient edits, smart text import, and photo review now respect the selected recipe pricing store.
+- Updated version badge and package version to v2026.06.12.0022.
+
+Notes:
+- Walmart starter prices are planning estimates and should be verified before shopping.
+- If an older browser/cloud workspace still shows legacy catalog records, use Price Catalog > Restore Walmart Starter Catalog after deploying this version.
