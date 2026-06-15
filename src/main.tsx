@@ -33,6 +33,7 @@ const EyeOff = (props: IconProps) => <IconGlyph label="◌" {...props} />;
 const FileSearch = (props: IconProps) => <IconGlyph label="⌕" {...props} />;
 const Home = (props: IconProps) => <IconGlyph label="⌂" {...props} />;
 const Landmark = (props: IconProps) => <IconGlyph label="▤" {...props} />;
+const MenuIcon = (props: IconProps) => <IconGlyph label="☰" {...props} />;
 const Settings = (props: IconProps) => <IconGlyph label="⚙" {...props} />;
 const ShoppingCart = (props: IconProps) => <IconGlyph label="🛒" {...props} />;
 const PlusCircle = (props: IconProps) => <IconGlyph label="＋" {...props} />;
@@ -409,6 +410,7 @@ function App() {
     }
   });
   const [page, setPage] = useState('dashboard');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const currentUser = data.users.find((u) => u.id === data.currentUserId) ?? data.users[0] ?? { id: 'user-owner', name: 'Owner', role: 'owner' as Role };
   const canViewFinance = financeRoles.includes(currentUser.role);
 
@@ -433,11 +435,14 @@ function App() {
   ];
 
   return <div className="app-shell">
-    <aside className="sidebar">
-      <div className="brand-card"><div className="brand-mark">HL</div><div><h1>HomeLife</h1><p>Budget, shop, cook, and plan your household in one place.</p></div></div>
-      <nav>{nav.filter((n) => n.show).map((n) => { const Icon = n.icon; return <button key={n.id} className={page === n.id ? 'active' : ''} onClick={() => setPage(n.id)}><Icon size={18} /> {n.label}</button>; })}</nav>
+    <aside className={`sidebar ${mobileMenuOpen ? 'mobile-open' : 'mobile-closed'}`}>
+      <div className="mobile-sidebar-head">
+        <div className="brand-card"><div className="brand-mark">HL</div><div><h1>HomeLife</h1><p>Budget, shop, cook, and plan your household in one place.</p></div></div>
+        <button className="mobile-menu-toggle" type="button" aria-label={mobileMenuOpen ? 'Close HomeLife menu' : 'Open HomeLife menu'} aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen((open) => !open)}><MenuIcon size={20} /> Menu</button>
+      </div>
+      <nav>{nav.filter((n) => n.show).map((n) => { const Icon = n.icon; return <button key={n.id} className={page === n.id ? 'active' : ''} onClick={() => { setPage(n.id); setMobileMenuOpen(false); }}><Icon size={18} /> {n.label}</button>; })}</nav>
       {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this role.</div>}
-      <div className="version-badge">v2026.06.12.0010</div>
+      <div className="version-badge">v2026.06.12.0011</div>
     </aside>
     <main>
       <header className="topbar"><div><h2>{nav.find((n) => n.id === page)?.label ?? 'Dashboard'}</h2><p>Signed in as <strong>{currentUser.name}</strong> · {currentUser.role.replace('_', ' ')}</p></div><select value={data.currentUserId} onChange={(e) => update({ ...data, currentUserId: e.target.value })}>{data.users.map((u) => <option key={u.id} value={u.id}>{u.name} — {u.role.replace('_', ' ')}</option>)}</select></header>

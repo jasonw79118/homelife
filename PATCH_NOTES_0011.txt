@@ -1,0 +1,15 @@
+HomeLife Patch Notes - v2026.06.12.0011
+
+Focus: Mobile/iOS navigation fix.
+
+Changes:
+- Added a responsive hamburger menu for the sidebar on mobile and iOS-sized screens.
+- The full side menu is collapsed by default under 980px wide.
+- The compact HomeLife header stays sticky at the top with a Menu button.
+- Tapping a navigation item closes the menu and takes the user directly to the selected page.
+- Desktop/tablet-wide layout keeps the original always-visible sidebar.
+- Existing recipe builder, meal planner, pantry, register add/delete, and price catalog features retained.
+
+Deployment:
+- ZIP is root-level. Unzip directly into the repository root.
+- Production output is included in /dist, /docs, root /index.html, and root /assets.
