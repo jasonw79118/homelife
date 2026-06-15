@@ -1,0 +1,13 @@
+HomeLife v2026.06.12.0018
+
+Fixes:
+- Recipe Builder photo import now uses a second-pass OCR fallback through Tesseract.js when the browser's built-in photo text detection is not available.
+- Photo recipe import no longer ends only with "No recipe added." If OCR cannot read the image, HomeLife can still save the photo recipe for review so ingredients can be added with Smart Text or another photo.
+- Added a visible photo capture status message on the Recipe Builder page.
+- Added "Add Smart Text" to each recipe card so copied recipe text can be appended to an existing photo recipe without comma formatting.
+- Improved ingredient parsing for number words, package sizes, OCR lb/oz mistakes, bullets, semicolons, and normal recipe ingredient lines.
+- Cloud sync now gives a clear Supabase SQL/schema-cache message when the RPC functions are missing.
+- Updated Supabase SQL with exact RPC signatures, schema usage grants, and a PostgREST schema-cache reload command.
+
+Required Supabase step:
+Run supabase/homelife_cloud_schema.sql or SUPABASE_SQL_FIX_0018_RUN_THIS.sql in the Supabase SQL Editor, then wait about 30 seconds and retry Cloud Save.

@@ -186,3 +186,12 @@ h4 { margin: 1.25rem 0 0.5rem; color: #1e4d2b; }
   margin: 0.75rem 0 0;
   line-height: 1.45;
 }
+.status-banner {
+  border: 1px solid #cfe6d0;
+  background: #f3faf3;
+  color: #254b2a;
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  margin: 0.75rem 0;
+  font-weight: 700;
+}

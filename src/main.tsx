@@ -341,18 +341,25 @@ const INGREDIENT_UNITS = [
   'teaspoon', 'teaspoons', 'tsp', 'tablespoon', 'tablespoons', 'tbsp', 'cup', 'cups', 'pint', 'pints', 'quart', 'quarts', 'gallon', 'gallons',
   'ounce', 'ounces', 'oz', 'pound', 'pounds', 'lb', 'lbs', 'gram', 'grams', 'g', 'kg', 'kilogram', 'kilograms',
   'can', 'cans', 'jar', 'jars', 'box', 'boxes', 'bag', 'bags', 'package', 'packages', 'pkg', 'bottle', 'bottles',
-  'clove', 'cloves', 'slice', 'slices', 'stick', 'sticks', 'dash', 'pinch', 'sprig', 'head', 'bunch', 'item', 'items'
+  'clove', 'cloves', 'slice', 'slices', 'stick', 'sticks', 'dash', 'pinch', 'sprig', 'head', 'bunch', 'item', 'items',
+  'c', 't', 'tbs', 'tbl', 'tbls', 'envelope', 'envelopes', 'packet', 'packets'
 ];
 
 const UNICODE_FRACTIONS: Record<string, string> = {
   '¼': ' 1/4', '½': ' 1/2', '¾': ' 3/4', '⅓': ' 1/3', '⅔': ' 2/3', '⅛': ' 1/8', '⅜': ' 3/8', '⅝': ' 5/8', '⅞': ' 7/8'
 };
 
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, half: 0.5, quarter: 0.25
+};
+
 function normalizeUnit(unit: string | undefined): string {
   const cleaned = clean(unit, 'item').toLowerCase().replace(/\.$/, '');
   const map: Record<string, string> = {
     teaspoons: 'tsp', teaspoon: 'tsp', tablespoon: 'tbsp', tablespoons: 'tbsp', ounce: 'oz', ounces: 'oz', pound: 'lb', pounds: 'lb', lbs: 'lb',
-    packages: 'package', pkgs: 'package', pkg: 'package', cans: 'can', jars: 'jar', bags: 'bag', boxes: 'box', bottles: 'bottle', cloves: 'clove', slices: 'slice', sticks: 'stick', cups: 'cup'
+    packages: 'package', pkgs: 'package', pkg: 'package', cans: 'can', jars: 'jar', bags: 'bag', boxes: 'box', bottles: 'bottle', cloves: 'clove', slices: 'slice', sticks: 'stick', cups: 'cup',
+    c: 'cup', t: 'tsp', tbs: 'tbsp', tbl: 'tbsp', tbls: 'tbsp', envelopes: 'envelope', packets: 'packet'
   };
   return map[cleaned] ?? cleaned ?? 'item';
 }
@@ -365,12 +372,15 @@ function titleCaseIngredient(value: string): string {
 }
 
 function parseSmartQuantity(value: string | undefined): number {
-  const raw = clean(value).replace(/[()]/g, '');
+  const raw = clean(value).toLowerCase().replace(/[()]/g, '').replace(/-/g, ' ');
   if (!raw) return 1;
+  if (NUMBER_WORDS[raw] !== undefined) return NUMBER_WORDS[raw];
   const parts = raw.split(/\s+/).filter(Boolean);
   let total = 0;
   for (const part of parts) {
-    if (/^\d+\/\d+$/.test(part)) {
+    if (NUMBER_WORDS[part] !== undefined) {
+      total += NUMBER_WORDS[part];
+    } else if (/^\d+\/\d+$/.test(part)) {
       const [a, b] = part.split('/').map(Number);
       total += b ? a / b : 0;
     } else {
@@ -385,8 +395,11 @@ function stripRecipeNoise(text: string): string {
   let out = clean(text)
     .replace(/[¼½¾⅓⅔⅛⅜⅝⅞]/g, (match) => UNICODE_FRACTIONS[match] ?? match)
     .replace(/\r/g, '\n')
+    .replace(/[|]/g, '\n')
     .replace(/\u2022|•|▪|◦|–|—/g, '\n')
-    .replace(/\b(ingredients?|what you need|shopping list)\s*:?/gi, '\n')
+    .replace(/\b([0-9])\s*[Il]\s?b\b/g, '$1 lb')
+    .replace(/\b([0-9])\s*o\s?z\b/gi, '$1 oz')
+    .replace(/\b(ingredients?|what you need|shopping list|you will need)\s*:?/gi, '\n')
     .replace(/\b(directions?|instructions?|method|preparation|prep|steps?)\s*:?/gi, '\nSTOP_RECIPE_DIRECTIONS\n')
     .replace(/\b(nutrition|calories|servings?|yield|cook time|prep time|total time)\b[^\n]*/gi, '\n');
   out = out.split('STOP_RECIPE_DIRECTIONS')[0] ?? out;
@@ -396,10 +409,11 @@ function stripRecipeNoise(text: string): string {
 function splitIngredientCandidates(text: string): string[] {
   const cleaned = stripRecipeNoise(text);
   const unitPattern = INGREDIENT_UNITS.join('|');
-  const quantityLookahead = `(?=(?:\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?)(?:\\s*(?:${unitPattern})\\b|\\s+[a-zA-Z]))`;
+  const numberWords = Object.keys(NUMBER_WORDS).join('|');
+  const quantityLookahead = `(?=(?:\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?|${numberWords})(?:\s*(?:${unitPattern})\b|\s+[a-zA-Z]))`;
   const withBreaks = cleaned
-    .replace(/\s*(?:,|;|\|)\s*(?=(?:\d|[¼½¾⅓⅔⅛⅜⅝⅞]))/g, '\n')
-    .replace(new RegExp(`\\s+${quantityLookahead}`, 'gi'), '\n')
+    .replace(/\s*(?:,|;|\|)\s*(?=(?:\d|[¼½¾⅓⅔⅛⅜⅝⅞]|one|two|three|four|five|six|seven|eight|nine|ten)\b)/gi, '\n')
+    .replace(new RegExp(`\s+${quantityLookahead}`, 'gi'), '\n')
     .replace(/\s+(?=(?:one|two|three|four|five|six|seven|eight|nine|ten)\s)/gi, '\n');
   return withBreaks
     .split(/\n+/)
@@ -423,12 +437,19 @@ function parseIngredientLine(line: string): { name: string; quantity: number; un
   withoutPrice = withoutPrice.replace(/\b(optional|divided|to taste|as needed|for serving|for garnish)\b/gi, '').trim();
   withoutPrice = withoutPrice.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
   const unitPattern = INGREDIENT_UNITS.join('|');
-  const quantityPattern = '(\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?)';
+  const numberWords = Object.keys(NUMBER_WORDS).join('|');
+  const quantityPattern = `(\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?|${numberWords})`;
   const quantified = withoutPrice.match(new RegExp(`^${quantityPattern}\\s*(?:(${unitPattern})\\b)?\\s*(?:of\\s+)?(.+)$`, 'i'));
   if (quantified) {
     const rawQuantity = parseSmartQuantity(quantified[1]);
-    const unit = normalizeUnit(quantified[2] || 'item');
-    const name = titleCaseIngredient((quantified[3] ?? withoutPrice).replace(/,.*$/, '').trim());
+    let unit = normalizeUnit(quantified[2] || 'item');
+    let rest = (quantified[3] ?? withoutPrice).trim();
+    const packaged = rest.match(new RegExp(`^(?:\\(?\\d+(?:\\.\\d+)?\\s*(?:oz|ounce|ounces|lb|lbs|pound|pounds|g|gram|grams|kg|ml|l)\\)?\\s+)?(${unitPattern})\\b\\s+(.+)$`, 'i'));
+    if (unit === 'item' && packaged) {
+      unit = normalizeUnit(packaged[1]);
+      rest = packaged[2];
+    }
+    const name = titleCaseIngredient(rest.replace(/,.*$/, '').trim());
     if (!name || name.length < 2) return null;
     return { name, quantity: rawQuantity, unit, estimatedPrice };
   }
@@ -793,7 +814,7 @@ function App() {
       </div>
       <nav>{visibleNav.map((n) => { const Icon = n.icon; return <button key={n.id} className={activeNav === n.id ? 'active' : ''} onClick={() => { setPage(n.id); setMobileMenuOpen(false); }}><Icon size={18} /> {n.label}</button>; })}</nav>
       {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this login.</div>}
-      <div className="version-badge">v2026.06.12.0017</div>
+      <div className="version-badge">v2026.06.12.0018</div>
     </aside>
     <main>
       <header className="topbar"><div><h2>{nav.find((n) => n.id === activeNav)?.label ?? 'Dashboard'}</h2><p><strong>{data.householdName ?? 'Household'}</strong> · signed in as <strong>{currentUser.name}</strong> · {roleLabel(currentUser.role)}</p></div><div className="settings-actions"><span className="pill neutral">Code: {householdCode}</span><span className="pill neutral">{cloudStatus}</span><button onClick={signOut}>Switch family/user</button></div></header>
@@ -1002,8 +1023,61 @@ function Pantry({ data, update }: { data: AppData; update: (d: AppData) => void 
 }
 
 
+type TesseractLike = {
+  recognize: (image: File | Blob | string, lang?: string, options?: Record<string, unknown>) => Promise<{ data?: { text?: string } }>;
+};
+
+declare global {
+  interface Window { Tesseract?: TesseractLike; }
+}
+
+function loadExternalScript(id: string, src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (typeof document === 'undefined') { reject(new Error('Document is not available.')); return; }
+    const existing = document.getElementById(id) as HTMLScriptElement | null;
+    if (existing?.dataset.loaded === 'true') { resolve(); return; }
+    if (existing) {
+      existing.addEventListener('load', () => resolve(), { once: true });
+      existing.addEventListener('error', () => reject(new Error(`Could not load ${src}`)), { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.id = id;
+    script.src = src;
+    script.async = true;
+    script.crossOrigin = 'anonymous';
+    script.addEventListener('load', () => { script.dataset.loaded = 'true'; resolve(); }, { once: true });
+    script.addEventListener('error', () => reject(new Error(`Could not load ${src}`)), { once: true });
+    document.head.appendChild(script);
+  });
+}
+
+async function runTesseractOcr(file: File, onStatus?: (status: string) => void): Promise<string> {
+  try {
+    onStatus?.('Loading offline-style OCR engine for the photo...');
+    await loadExternalScript('homelife-tesseract-js', 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
+    const tesseract = window.Tesseract;
+    if (!tesseract?.recognize) throw new Error('OCR engine did not initialize.');
+    onStatus?.('Reading recipe photo. This can take 15-45 seconds on a phone...');
+    const result = await tesseract.recognize(file, 'eng', {
+      logger: (message: unknown) => {
+        const status = typeof message === 'object' && message ? String((message as { status?: unknown }).status ?? '') : '';
+        const progress = typeof message === 'object' && message ? Number((message as { progress?: unknown }).progress ?? 0) : 0;
+        if (status) onStatus?.(`${status}${progress ? ` ${Math.round(progress * 100)}%` : ''}`);
+      }
+    });
+    return clean(result.data?.text);
+  } catch (error) {
+    console.warn('Tesseract OCR unavailable.', error);
+    onStatus?.('Photo OCR was not available in this browser. You can still paste the recipe text without comma formatting.');
+    return '';
+  }
+}
+
+
 function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) => void }) {
   const [query, setQuery] = useState('');
+  const [photoStatus, setPhotoStatus] = useState('');
   const recipes = [...data.recipes]
     .filter((recipe) => `${recipe.name} ${recipe.category ?? ''} ${recipe.notes ?? ''} ${recipe.ingredients.map((ingredient) => ingredient.name).join(' ')}`.toLowerCase().includes(query.toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -1057,22 +1131,34 @@ function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) =
   }
 
   async function extractTextFromPhotoFile(file: File): Promise<string> {
+    const detectedParts: string[] = [];
     try {
       type TextDetectorLike = new () => { detect(source: ImageBitmapSource): Promise<Array<{ rawValue?: string; rawText?: string; text?: string }>> };
       const TextDetectorCtor = (window as unknown as { TextDetector?: TextDetectorLike }).TextDetector;
-      if (!TextDetectorCtor || typeof createImageBitmap !== 'function') return '';
-      const image = await createImageBitmap(file);
-      try {
-        const detector = new TextDetectorCtor();
-        const blocks = await detector.detect(image);
-        return blocks.map((block) => clean(block.rawValue ?? block.rawText ?? block.text)).filter(Boolean).join('\n');
-      } finally {
-        image.close?.();
+      if (TextDetectorCtor && typeof createImageBitmap === 'function') {
+        setPhotoStatus('Trying built-in browser photo text detection...');
+        const image = await createImageBitmap(file);
+        try {
+          const detector = new TextDetectorCtor();
+          const blocks = await detector.detect(image);
+          const text = blocks.map((block) => clean(block.rawValue ?? block.rawText ?? block.text)).filter(Boolean).join('\n');
+          if (text) detectedParts.push(text);
+        } finally {
+          image.close?.();
+        }
       }
     } catch (error) {
-      console.warn('Photo text detection unavailable in this browser.', error);
-      return '';
+      console.warn('Built-in photo text detection unavailable in this browser.', error);
     }
+
+    if (!detectedParts.join('\n').trim()) {
+      const ocrText = await runTesseractOcr(file, setPhotoStatus);
+      if (ocrText) detectedParts.push(ocrText);
+    }
+
+    const finalText = detectedParts.join('\n').trim();
+    setPhotoStatus(finalText ? 'Recipe photo text detected. Breaking down ingredients...' : 'No readable recipe text was detected from the photo.');
+    return finalText;
   }
 
   async function detectBarcodeIngredientNames(file: File): Promise<string[]> {
@@ -1100,6 +1186,7 @@ function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) =
   }
 
   async function ingredientsFromPhotoFile(file: File): Promise<MealIngredient[]> {
+    setPhotoStatus('Starting recipe photo capture...');
     const detectedText = await extractTextFromPhotoFile(file);
     const barcodeNames = await detectBarcodeIngredientNames(file);
     const filenameNames = inferIngredientNamesFromPhotoName(file.name, data);
@@ -1107,19 +1194,31 @@ function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) =
     let parsed = parseIngredientsFromText(autoSourceText);
 
     if (parsed.length) {
+      setPhotoStatus(`Detected ${parsed.length} ingredient(s) from the photo. Waiting for your review...`);
       const summary = parsed.slice(0, 12).map((ingredient) => `• ${ingredient.quantity} ${ingredient.unit} ${ingredient.name}`).join('\n');
       const useDetected = confirm(`HomeLife detected these ingredient(s) from the photo and catalog lookup:\n\n${summary}${parsed.length > 12 ? `\n…and ${parsed.length - 12} more` : ''}\n\nUse these automatically?\n\nChoose Cancel to review/edit the detected recipe text first.`);
-      if (useDetected) return parsed;
+      if (useDetected) {
+        setPhotoStatus(`Added ${parsed.length} ingredient(s) from the photo.`);
+        return parsed;
+      }
     }
 
-    const fallbackText = parsed.length ? autoSourceText : '';
+    const fallbackText = autoSourceText || '';
     const reviewed = clean(prompt(
-      'Review or paste the recipe/ingredient text from the photo. No comma format needed — paste full lines, bullets, or recipe text and HomeLife will pick out the ingredients automatically.',
+      'Review or paste the recipe/ingredient text from the photo. No comma format needed — paste full lines, bullets, or normal recipe text and HomeLife will pick out the ingredients automatically.',
       fallbackText
     ));
-    if (!reviewed) return parsed;
+    if (!reviewed) {
+      setPhotoStatus(parsed.length ? `Using the ${parsed.length} ingredient(s) already detected.` : 'No recipe text was available to parse from the photo.');
+      return parsed;
+    }
     parsed = parseIngredientsFromText(reviewed);
-    if (!parsed.length) alert('HomeLife could not identify ingredients from that text. Try a clearer photo of the ingredient list or paste the recipe ingredient section.');
+    if (!parsed.length) {
+      setPhotoStatus('HomeLife could not identify ingredients from that text.');
+      alert('HomeLife could not identify ingredients from that text. Try a clearer photo of the ingredient list or paste the recipe ingredient section. You do not need commas.');
+    } else {
+      setPhotoStatus(`Added ${parsed.length} ingredient(s) from reviewed recipe text.`);
+    }
     return parsed;
   }
 
@@ -1128,14 +1227,31 @@ function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) =
     const file = event.target.files?.[0];
     event.currentTarget.value = '';
     if (!file) return;
+    setPhotoStatus('Photo selected. Preparing import...');
     const photoDataUrl = await readPhoto(file);
     const ingredients = await ingredientsFromPhotoFile(file);
-    if (!ingredients.length) { alert('No ingredients were added from that photo.'); return; }
+    if (!ingredients.length) {
+      const saveShell = confirm('HomeLife could not break down ingredients from this photo yet. Save the photo as a review-needed recipe anyway so you can add smart text or ingredients later?');
+      if (!saveShell) return;
+    }
     const name = clean(prompt('Recipe name for this photo?', file.name.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ')), 'Photo Recipe');
     const servings = promptNumber('Servings?', 4);
     const timestamp = new Date().toISOString();
-    const recipe: Recipe = { id: uid('recipe'), name, servings: Math.max(1, servings), category: 'Photo Import', ingredients, source: 'photo', photoName: file.name, photoDataUrl, notes: 'Built from photo-assisted ingredient capture.', createdAt: timestamp, updatedAt: timestamp };
+    const recipe: Recipe = {
+      id: uid('recipe'),
+      name,
+      servings: Math.max(1, servings),
+      category: ingredients.length ? 'Photo Import' : 'Photo Review Needed',
+      ingredients,
+      source: 'photo',
+      photoName: file.name,
+      photoDataUrl,
+      notes: ingredients.length ? 'Built from photo-assisted ingredient capture.' : 'Photo saved, but ingredients still need review. Use Smart Text Recipe or Add Ingredient Photo after improving the image/text.',
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
     update({ ...data, recipes: [...data.recipes, recipe] });
+    setPhotoStatus(ingredients.length ? `Recipe saved with ${ingredients.length} ingredient(s).` : 'Recipe photo saved for review; no ingredients were detected yet.');
   }
 
   async function addPhotoIngredient(recipeId: string, event: React.ChangeEvent<HTMLInputElement>) {
@@ -1143,8 +1259,17 @@ function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) =
     event.currentTarget.value = '';
     if (!file) return;
     const ingredients = await ingredientsFromPhotoFile(file);
-    if (!ingredients.length) return;
+    if (!ingredients.length) { alert('No ingredients were detected. The recipe was left unchanged. Try Smart Text Recipe or paste the ingredient section without comma formatting.'); return; }
     update({ ...data, recipes: data.recipes.map((recipe) => recipe.id === recipeId ? { ...recipe, ingredients: [...recipe.ingredients, ...ingredients], source: recipe.source === 'starter' ? 'manual' : recipe.source, photoName: recipe.photoName ?? file.name, updatedAt: new Date().toISOString() } : recipe) });
+  }
+
+  function addSmartTextToRecipe(recipeId: string) {
+    const recipeText = clean(prompt('Paste the ingredient section or full recipe text. No commas required — HomeLife will identify ingredient lines automatically.', ''));
+    if (!recipeText) return;
+    const parsed = smartParseIngredientsFromText(data, recipeText);
+    if (!parsed.ingredients.length) { alert('HomeLife could not identify ingredients from that text.'); return; }
+    update({ ...data, recipes: data.recipes.map((recipe) => recipe.id === recipeId ? { ...recipe, ingredients: [...recipe.ingredients, ...parsed.ingredients], notes: recipe.notes ?? 'Updated from smart recipe text.', updatedAt: new Date().toISOString() } : recipe) });
+    setPhotoStatus(`Added ${parsed.ingredients.length} ingredient(s) from smart text.`);
   }
 
   function planRecipe(recipe: Recipe) {
@@ -1182,8 +1307,8 @@ function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) =
   }
 
   return <div className="recipe-page">
-    <div className="card wide"><div className="split"><div><h3>Recipe Builder</h3><p className="muted">Build reusable recipes manually, from smart pasted recipe text, or from photo-assisted capture. Photo capture now attempts browser text/barcode detection and then parses natural recipe text automatically, so ingredients do not have to be entered in comma format.</p></div><div className="settings-actions"><button className="primary" onClick={addRecipe}><PlusCircle size={16} /> Add Manual Recipe</button><button onClick={addRecipeFromSmartText}>Smart Text Recipe</button><label className="button-like"><Camera size={16} /> Add Recipe From Photo<input type="file" accept="image/*" capture="environment" onChange={addRecipeFromPhoto} hidden /></label></div></div><input className="full-input" placeholder="Search recipes, categories, notes, or ingredients..." value={query} onChange={(event) => setQuery(event.target.value)} /><div className="totals"><span>Recipes: <strong>{data.recipes.length}</strong></span><span>Visible: <strong>{recipes.length}</strong></span></div></div>
-    <div className="grid two">{recipes.map((recipe) => <div className="card recipe-card" key={recipe.id}>{recipe.photoDataUrl && <img className="recipe-photo" src={recipe.photoDataUrl} alt={`${recipe.name} import`} />}<div className="split"><div><p className="label">{recipe.category ?? 'Recipe'} · {recipe.servings} serving(s) · {recipe.source}</p><h3>{recipe.name}</h3><p>{recipe.notes}</p></div><button className="icon-danger" onClick={() => deleteRecipe(recipe.id)}><Trash2 size={14} /> Delete Recipe</button></div><div className="meal-costs"><span>Recipe value: <strong>{money(recipeTotal(recipe))}</strong></span><span>Need to buy now: <strong>{money(recipeMissingTotal(recipe))}</strong></span><span>Ingredients: <strong>{recipe.ingredients.length}</strong></span></div><div className="settings-actions"><button onClick={() => addIngredient(recipe.id)}>Add Ingredient</button><label className="button-like"><Camera size={16} /> Add Ingredient Photo<input type="file" accept="image/*" capture="environment" onChange={(event) => addPhotoIngredient(recipe.id, event)} hidden /></label><button onClick={() => refreshRecipe(recipe.id)}>Refresh Pantry Check</button><button onClick={() => planRecipe(recipe)}>Plan as Meal</button><button onClick={() => addRecipeMissingToGrocery(recipe)}>Missing to Grocery List</button></div>{recipe.instructions && <p className="instructions"><strong>Instructions:</strong> {recipe.instructions}</p>}<ul className="ingredient-list">{recipe.ingredients.map((ingredient) => { const refreshed = refreshIngredientAgainstPantry(data, ingredient); return <li key={ingredient.id}><div><strong>{ingredient.name}</strong><small>{ingredient.quantity} {ingredient.unit} · {ingredient.category ?? 'Other'} · {refreshed.pantryCovered ? 'pantry covered' : 'buy'} · {money(ingredient.estimatedPrice)} {ingredient.store ? `· ${ingredient.store}` : ''}</small></div><button className="icon-danger" onClick={() => deleteIngredient(recipe.id, ingredient.id)}><Trash2 size={14} /> Delete</button></li>; })}</ul></div>)}</div>
+    <div className="card wide"><div className="split"><div><h3>Recipe Builder</h3><p className="muted">Build reusable recipes manually, from smart pasted recipe text, or from photo-assisted capture. Photo capture now attempts browser text/barcode detection and then parses natural recipe text automatically, so ingredients do not have to be entered in comma format.</p></div><div className="settings-actions"><button className="primary" onClick={addRecipe}><PlusCircle size={16} /> Add Manual Recipe</button><button onClick={addRecipeFromSmartText}>Smart Text Recipe</button><label className="button-like"><Camera size={16} /> Add Recipe From Photo<input type="file" accept="image/*" capture="environment" onChange={addRecipeFromPhoto} hidden /></label></div></div>{photoStatus && <div className="status-banner">{photoStatus}</div>}<input className="full-input" placeholder="Search recipes, categories, notes, or ingredients..." value={query} onChange={(event) => setQuery(event.target.value)} /><div className="totals"><span>Recipes: <strong>{data.recipes.length}</strong></span><span>Visible: <strong>{recipes.length}</strong></span></div></div>
+    <div className="grid two">{recipes.map((recipe) => <div className="card recipe-card" key={recipe.id}>{recipe.photoDataUrl && <img className="recipe-photo" src={recipe.photoDataUrl} alt={`${recipe.name} import`} />}<div className="split"><div><p className="label">{recipe.category ?? 'Recipe'} · {recipe.servings} serving(s) · {recipe.source}</p><h3>{recipe.name}</h3><p>{recipe.notes}</p></div><button className="icon-danger" onClick={() => deleteRecipe(recipe.id)}><Trash2 size={14} /> Delete Recipe</button></div><div className="meal-costs"><span>Recipe value: <strong>{money(recipeTotal(recipe))}</strong></span><span>Need to buy now: <strong>{money(recipeMissingTotal(recipe))}</strong></span><span>Ingredients: <strong>{recipe.ingredients.length}</strong></span></div><div className="settings-actions"><button onClick={() => addIngredient(recipe.id)}>Add Ingredient</button><label className="button-like"><Camera size={16} /> Add Ingredient Photo<input type="file" accept="image/*" capture="environment" onChange={(event) => addPhotoIngredient(recipe.id, event)} hidden /></label><button onClick={() => addSmartTextToRecipe(recipe.id)}>Add Smart Text</button><button onClick={() => refreshRecipe(recipe.id)}>Refresh Pantry Check</button><button onClick={() => planRecipe(recipe)}>Plan as Meal</button><button onClick={() => addRecipeMissingToGrocery(recipe)}>Missing to Grocery List</button></div>{recipe.instructions && <p className="instructions"><strong>Instructions:</strong> {recipe.instructions}</p>}<ul className="ingredient-list">{recipe.ingredients.map((ingredient) => { const refreshed = refreshIngredientAgainstPantry(data, ingredient); return <li key={ingredient.id}><div><strong>{ingredient.name}</strong><small>{ingredient.quantity} {ingredient.unit} · {ingredient.category ?? 'Other'} · {refreshed.pantryCovered ? 'pantry covered' : 'buy'} · {money(ingredient.estimatedPrice)} {ingredient.store ? `· ${ingredient.store}` : ''}</small></div><button className="icon-danger" onClick={() => deleteIngredient(recipe.id, ingredient.id)}><Trash2 size={14} /> Delete</button></li>; })}</ul></div>)}</div>
   </div>;
 }
 

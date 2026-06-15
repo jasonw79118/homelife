@@ -229,6 +229,18 @@ function safeUpdatedBy(updatedBy?: string): string {
   return String(updatedBy || 'home-device').replace(/[^a-zA-Z0-9_.@-]/g, '').slice(0, 64) || 'home-device';
 }
 
+function isMissingRpcError(body: string): boolean {
+  return body.includes('PGRST202') || body.includes('Could not find the function') || body.includes('schema cache');
+}
+
+async function cloudResponseError(response: Response, action: string): Promise<Error> {
+  const body = await response.text();
+  if (isMissingRpcError(body)) {
+    return new Error(`${action} failed because the HomeLife Supabase SQL functions are not installed or Supabase has not refreshed its schema cache. Run supabase/homelife_cloud_schema.sql in the Supabase SQL Editor, then wait about 30 seconds and retry. Details: ${response.status} ${body}`);
+  }
+  return new Error(`${action} failed: ${response.status} ${body}`);
+}
+
 export async function loadCloudHousehold(householdCode: string, config = getCloudSyncConfig()): Promise<CloudPullResult | null> {
   const readyConfig = requireConfig(config);
   const code = householdCode.trim().toUpperCase();
@@ -238,7 +250,7 @@ export async function loadCloudHousehold(householdCode: string, config = getClou
     headers: headers(readyConfig),
     body: JSON.stringify({ p_workspace_id: id })
   });
-  if (!response.ok) throw new Error(`Cloud load failed: ${response.status} ${await response.text()}`);
+  if (!response.ok) throw await cloudResponseError(response, 'Cloud load');
   const rows = await response.json() as Array<{ encrypted_payload?: string; updated_at?: string; updated_by?: string }>;
   const row = rows[0];
   if (!row?.encrypted_payload) return null;
@@ -256,7 +268,7 @@ export async function saveCloudHousehold(data: AppData, householdCode: string, u
     headers: headers(readyConfig),
     body: JSON.stringify({ p_workspace_id: id, p_encrypted_payload: encryptedPayload, p_updated_by: safeUpdatedBy(updatedBy) })
   });
-  if (!response.ok) throw new Error(`Cloud save failed: ${response.status} ${await response.text()}`);
+  if (!response.ok) throw await cloudResponseError(response, 'Cloud save');
   const rows = await response.json() as Array<{ updated_at?: string }>;
   return { updatedAt: rows[0]?.updated_at };
 }
@@ -268,5 +280,5 @@ export async function testCloudConnection(config = getCloudSyncConfig()): Promis
     headers: headers(readyConfig),
     body: JSON.stringify({})
   });
-  if (!response.ok) throw new Error(`Cloud test failed: ${response.status} ${await response.text()}`);
+  if (!response.ok) throw await cloudResponseError(response, 'Cloud test');
 }
