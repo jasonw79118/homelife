@@ -1,5 +1,5 @@
 HomeLife update - Meal Planner, Pantry, and Delete Coverage
-Version: 2026.06.12.0002
+Version: 2026.06.12.0005
 
 What changed
 1. Added Pantry Builder
@@ -33,8 +33,29 @@ What changed
 Deploy notes
 - Project uses Vite/React/TypeScript.
 - GitHub Pages base is /homelife/.
-- deploy.yml uses Node 22, public npm registry, npm install, npm run build, and SPA fallback copy.
+- deploy.yml uses Node 20, pins npm 10.9.2, forces the public npm registry, retries npm install after a cache clear, builds Vite, copies the SPA fallback, and deploys a uniquely named homelife-pages artifact.
 
 Important
 - This is still browser-local storage. Export JSON Backup from Settings before major changes.
 - The meal cost logic treats pantry-covered ingredients as already accounted for and only adds non-pantry-covered ingredients to the grocery list.
+
+
+Packaging correction
+- This ZIP is rooted at the project files. Unzipping it into the repository root should place package.json, index.html, src/, and .github/ directly at the root with no extra parent folder.
+
+Deployment correction
+- The prior Pages failure was caused by more than one artifact named github-pages in the same workflow run. This workflow uploads a uniquely named artifact, homelife-pages, and tells actions/deploy-pages@v5 to deploy that artifact_name.
+- The npm install step now pins npm to 10.9.2 and retries after npm cache clean to avoid npm's intermittent Exit handler never called failure.
+- If older workflow files remain in the repository, remove or disable them so only this .github/workflows/deploy.yml runs for HomeLife.
+
+
+PATCH 2026.06.12.0005
+- Fixed TypeScript 6 build failure by migrating tsconfig moduleResolution from deprecated "Node"/node10 mode to "bundler", which is the correct setting for Vite React projects.
+- Root ZIP remains flat: unzip into the repository root.
+- Deployment workflow still uses the custom Pages artifact name homelife-pages. If GitHub continues to report multiple github-pages artifacts, delete/disable old workflow files left in .github/workflows before pushing because ZIP overwrite does not remove files that already exist in the repository.
+
+PATCH 2026.06.12.0005
+- Fixed build errors caused by stale src/data/starterData.ts remaining after unzip-overwrite deployments.
+- Updated tsconfig include list so TypeScript only compiles the active HomeLife app entry, active shared types, active storage service, and declaration files. This prevents unused legacy data files from breaking npm run build.
+- Added compatibility to src/types.ts for existing starter data values: role child, price catalog storeName metadata, and Sams/warehouse shopping list types.
+- This ZIP remains root-level and can be extracted directly into the repository root.

@@ -1,0 +1,15 @@
+HomeLife optional cleanup notes
+
+This ZIP is designed for unzip-overwrite into the repository root.
+
+The 2026.06.12.0005 patch prevents stale, unused files such as src/data/starterData.ts from breaking TypeScript builds by narrowing tsconfig.json to the active app files.
+
+Optional cleanup on Windows PowerShell after extracting:
+
+# Remove old starter data file if it is no longer imported anywhere
+Remove-Item .\src\data\starterData.ts -ErrorAction SilentlyContinue
+
+# List workflows and remove old duplicate deploy workflows manually, keeping .github\workflows\deploy.yml
+Get-ChildItem .\.github\workflows
+
+Only keep the included deploy.yml workflow if GitHub Pages reports multiple github-pages artifacts.

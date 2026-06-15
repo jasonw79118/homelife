@@ -11,8 +11,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: homelife-pages
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -24,14 +24,20 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          node-version: 20
 
-      - name: Force public npm registry
-        run: npm config set registry https://registry.npmjs.org/
+      - name: Force public npm registry and stable npm
+        run: |
+          npm config set registry https://registry.npmjs.org/
+          npm install -g npm@10.9.2 --registry=https://registry.npmjs.org/
+          npm --version
+          node --version
 
       - name: Install dependencies
-        run: npm install --registry=https://registry.npmjs.org/
+        run: |
+          npm cache clean --force
+          npm install --no-audit --no-fund --prefer-online --registry=https://registry.npmjs.org/ || \
+          (npm cache clean --force && npm install --no-audit --no-fund --prefer-online --registry=https://registry.npmjs.org/)
 
       - name: Build
         run: npm run build
@@ -42,10 +48,12 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload artifact
+      - name: Upload HomeLife Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
+          name: homelife-pages
           path: dist
+          retention-days: 1
 
   deploy:
     environment:
@@ -56,4 +64,6 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
+        with:
+          artifact_name: homelife-pages

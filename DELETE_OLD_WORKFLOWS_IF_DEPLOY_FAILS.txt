@@ -1,0 +1,3 @@
+If GitHub Pages still fails with: Multiple artifacts named "github-pages" were unexpectedly found, check .github/workflows and delete or disable old deployment workflow files that still upload a default github-pages artifact.
+
+This ZIP includes .github/workflows/deploy.yml only, but unzipping over an existing repo does not delete old workflow YAML files. Keep the included deploy.yml and remove older Pages deploy files before pushing.

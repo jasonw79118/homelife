@@ -1,4 +1,4 @@
-export type Role = 'owner' | 'financial_manager' | 'household_member' | 'viewer';
+export type Role = 'owner' | 'financial_manager' | 'household_member' | 'viewer' | 'child';
 
 export interface User {
   id: string;
@@ -40,7 +40,16 @@ export interface Debt {
 export interface PriceCatalogItem {
   id: string;
   store: string;
+  storeName?: string;
   storeZip?: string;
+  zipCode?: string;
+  location?: string;
+  aisle?: string;
+  sku?: string;
+  upc?: string;
+  source?: string;
+  unit?: string;
+  unitPrice?: number;
   name: string;
   brand?: string;
   size?: string;
@@ -48,6 +57,7 @@ export interface PriceCatalogItem {
   price: number;
   lastChecked: string;
   notes?: string;
+  [key: string]: unknown;
 }
 
 export interface ShoppingItem {
@@ -68,7 +78,7 @@ export interface ShoppingItem {
 export interface ShoppingList {
   id: string;
   name: string;
-  type: 'custom' | 'grocery' | 'school' | 'meal_plan';
+  type: 'custom' | 'grocery' | 'school' | 'meal_plan' | 'sams' | 'warehouse';
   sharedWith: string[];
   items: ShoppingItem[];
 }
