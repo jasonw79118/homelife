@@ -177,3 +177,12 @@ h4 { margin: 1.25rem 0 0.5rem; color: #1e4d2b; }
   .login-shell { align-items: start; }
   .login-card .grid.two { grid-template-columns: 1fr; }
 }
+.privacy-callout {
+  border: 1px solid #d9ead7;
+  background: #f6fbf5;
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  color: #2f4d32;
+  margin: 0.75rem 0 0;
+  line-height: 1.45;
+}

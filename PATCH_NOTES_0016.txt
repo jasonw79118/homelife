@@ -1,0 +1,17 @@
+HomeLife v2026.06.12.0016
+
+Privacy-hardening patch for multi-family cloud testing.
+
+Changes:
+- Cloud workspace rows now use a one-way workspace ID derived from family code + family cloud password.
+- Raw family code and household name are no longer saved as readable Supabase columns by the app.
+- Household data remains encrypted before upload.
+- Family cloud password is session-only and no longer saved to localStorage.
+- Added Supabase RPC schema and removed/revoked beta table-wide anon policies.
+- Added Cloud Setup warning for password changes.
+- Added Settings privacy callout explaining what is and is not stored.
+- Added PRIVACY_HARDENING_0016.md.
+- Version bumped to 2026.06.12.0016.
+
+Required deployment step:
+Run supabase/homelife_cloud_schema.sql in the Supabase SQL Editor after deploying this version.

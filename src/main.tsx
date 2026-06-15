@@ -456,9 +456,13 @@ function formatSyncTime(value?: string): string {
 
 function promptCloudConfig(): boolean {
   const existing = getCloudSyncConfig();
-  const passphrase = clean(prompt('Family cloud password/passphrase? Every household device will need this. It encrypts the workspace before it leaves the browser.', existing.passphrase));
+  const passphrase = clean(prompt('Family cloud password/passphrase? This unlocks only this family workspace. HomeLife keeps it in this browser session only; it is not saved to Supabase or local storage.', existing.passphrase));
   if (!passphrase) return false;
-  const autoSync = confirm('Turn on automatic cloud sync after each save? Choose OK for yes.');
+  if (existing.passphrase && existing.passphrase !== passphrase) {
+    const proceed = confirm('You entered a different family cloud password. That creates or opens a different encrypted workspace for this family code unless the old password is used to pull/re-encrypt the prior data. Continue?');
+    if (!proceed) return false;
+  }
+  const autoSync = confirm('Turn on automatic cloud sync after each save? Choose OK for yes. You will need to re-enter the family cloud password after closing the browser.');
   saveCloudSyncConfig({
     enabled: true,
     autoSync,
@@ -670,7 +674,7 @@ function App() {
       </div>
       <nav>{visibleNav.map((n) => { const Icon = n.icon; return <button key={n.id} className={activeNav === n.id ? 'active' : ''} onClick={() => { setPage(n.id); setMobileMenuOpen(false); }}><Icon size={18} /> {n.label}</button>; })}</nav>
       {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this login.</div>}
-      <div className="version-badge">v2026.06.12.0015</div>
+      <div className="version-badge">v2026.06.12.0016</div>
     </aside>
     <main>
       <header className="topbar"><div><h2>{nav.find((n) => n.id === activeNav)?.label ?? 'Dashboard'}</h2><p><strong>{data.householdName ?? 'Household'}</strong> · signed in as <strong>{currentUser.name}</strong> · {roleLabel(currentUser.role)}</p></div><div className="settings-actions"><span className="pill neutral">Code: {householdCode}</span><span className="pill neutral">{cloudStatus}</span><button onClick={signOut}>Switch family/user</button></div></header>
@@ -715,7 +719,7 @@ function LoginScreen({ data, householdCode, cloudControls, onLoadHousehold, onLo
         <div className="card">
           <p className="label">Sign in</p>
           <h3>Choose a family and user</h3>
-          <p className="muted">Each family code can load from the built-in encrypted Supabase backend after you enter the shared family cloud password on each device.</p><div className="cloud-login-panel"><span className="pill neutral">{cloudControls.status}</span><button onClick={cloudControls.configure}>Cloud Setup</button><button onClick={cloudControls.test}>Test Cloud</button></div>
+          <p className="muted">Each family code can load from the built-in encrypted Supabase backend after you enter the shared family cloud password on each device. Household details are encrypted before upload, and the password stays on the device for this browser session only.</p><div className="cloud-login-panel"><span className="pill neutral">{cloudControls.status}</span><button onClick={cloudControls.configure}>Cloud Setup</button><button onClick={cloudControls.test}>Test Cloud</button></div>
           <label className="field-label">Family code</label>
           <input className="full-input" value={code} onChange={(event) => setCode(event.target.value)} onBlur={() => loadCode(code)} placeholder="Example: WILLIAMS" />
           <button onClick={() => loadCode(code)}>Load Family</button>
@@ -729,7 +733,7 @@ function LoginScreen({ data, householdCode, cloudControls, onLoadHousehold, onLo
         <div className="card">
           <p className="label">New test family</p>
           <h3>Create a household workspace</h3>
-          <p className="muted">Use one code per testing family. The Supabase connection is built in; the household workspace is encrypted in the browser and shared by family code plus cloud password.</p>
+          <p className="muted">Use one code per testing family. The Supabase connection is built in; the household workspace is encrypted in the browser and shared by family code plus cloud password. Other families cannot be browsed from this app.</p>
           <label className="field-label">Family code</label>
           <input className="full-input" value={newCode} onChange={(event) => setNewCode(event.target.value)} placeholder="Example: SMITH-FAMILY" />
           <label className="field-label">Household name</label>
@@ -1157,7 +1161,8 @@ function SettingsPage({ data, update, cloudControls }: { data: AppData; update: 
   return <div className="card wide">
     <div className="split"><div><h3>Settings, Logins & Test Families</h3><p className="muted">Household code <strong>{data.inviteCode ?? data.householdId}</strong> separates each family test workspace. Cloud Sync lets the same family workspace follow users across phones, computers, and networks.</p></div><div className="settings-actions"><button onClick={renameHousehold}>Rename Household</button><button className="primary" onClick={addUser}><PlusCircle size={14} /> Add User Login</button></div></div>
     <div className="card inset-card cloud-card">
-      <div className="split"><div><h4>Reachable Cloud Backend</h4><p className="muted">Status: <strong>{cloudControls.status}</strong>. The Supabase connection is built in. Enter only the family cloud password on each household device; the workspace is encrypted in the browser before saving.</p></div><div className="settings-actions"><button onClick={cloudControls.configure}>Cloud Setup</button><button onClick={cloudControls.test}>Test</button><button className="primary" onClick={cloudControls.push}>Push Now</button><button onClick={cloudControls.pull}>Pull Latest</button><button className="danger" onClick={cloudControls.disable}>Disable</button></div></div>
+      <div className="split"><div><h4>Reachable Cloud Backend</h4><p className="muted">Status: <strong>{cloudControls.status}</strong>. The Supabase connection is built in. Enter only the family cloud password on each household device; the workspace is encrypted in the browser before saving. No readable budget, register, pantry, recipe, or grocery data is saved to Supabase.</p></div><div className="settings-actions"><button onClick={cloudControls.configure}>Cloud Setup</button><button onClick={cloudControls.test}>Test</button><button className="primary" onClick={cloudControls.push}>Push Now</button><button onClick={cloudControls.pull}>Pull Latest</button><button className="danger" onClick={cloudControls.disable}>Disable</button></div></div>
+      <p className="privacy-callout">Privacy hardening: cloud rows use a one-way workspace ID generated from the family code and cloud password. The raw family code, household name, and household data are not stored as readable Supabase columns. Changing the cloud password creates a different encrypted cloud workspace unless the data is re-saved with the new password.</p>
     </div>
     <h4>User logins and view controls</h4>
     <table><thead><tr><th>User</th><th>Role</th><th>PIN</th><th>Register/Budget/Debt</th><th>Statement Import</th><th>Recipes/Meals/Pantry/Shopping/Prices</th><th>Actions</th></tr></thead><tbody>{data.users.map(u => <tr key={u.id}><td>{u.name}</td><td>{roleLabel(u.role)}</td><td>{u.pin ? 'Set' : 'Blank'}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>Visible/shared</td><td><div className="row-actions"><button onClick={() => changeRole(u.id)}>Role</button><button onClick={() => changePin(u.id)}>PIN</button><button className="icon-danger" onClick={() => deleteUser(u.id)}><Trash2 size={14} /> Delete</button></div></td></tr>)}</tbody></table>

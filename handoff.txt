@@ -112,3 +112,7 @@ Fixed TypeScript Web Crypto BufferSource compatibility issue in cloud decrypt pa
 
 --- v2026.06.12.0015 ---
 Embedded the provided Supabase project URL and anon public key as the built-in cloud backend connection. Cloud Setup no longer asks each household for Supabase URL or anon key; it only asks for the family cloud password/passphrase and auto-sync preference. Version badge updated to 2026.06.12.0015.
+
+
+--- v2026.06.12.0016 ---
+Privacy-hardening patch for multi-family testing. Cloud data is still encrypted before upload, but the Supabase storage model is now safer: the app writes a one-way workspace ID instead of raw family code/household name, the family cloud password is kept session-only instead of localStorage, table-wide anon policies are removed, and RPC functions only pull/save one encrypted workspace at a time. Run supabase/homelife_cloud_schema.sql in Supabase before relying on cloud sync for external testers.

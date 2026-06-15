@@ -1,39 +1,35 @@
-# HomeLife Cloud Backend Setup v2026.06.12.0013
+# HomeLife Cloud Backend Setup — v2026.06.12.0016
 
-HomeLife is still hosted as a static GitHub Pages app, but this patch adds an optional reachable cloud backend using Supabase.
+HomeLife uses GitHub Pages for the front end and Supabase for a small encrypted sync table.
 
-## What this solves
+## What is stored in Supabase
 
-- The same household can use HomeLife from phones, tablets, and computers.
-- It works outside the home network.
-- Each family/test household uses its own household code.
-- Data is encrypted in the browser before it is saved to Supabase.
+v0016 stores only:
 
-## Setup steps
+- `workspace_id` — a one-way SHA-256 ID generated in the browser from the family code plus the family cloud password.
+- `encrypted_payload` — the encrypted HomeLife workspace.
+- `encryption_version`, `updated_at`, and a short device/user marker.
 
-1. Create a Supabase project.
-2. In Supabase SQL Editor, run `supabase/homelife_cloud_schema.sql`.
-3. Open HomeLife.
-4. On the login screen, select **Cloud Setup**.
-5. Enter:
-   - Supabase Project URL
-   - Supabase anon public key
-   - Family cloud password/passphrase
-6. Click **Test Cloud**.
-7. Create or load a family workspace.
-8. Use **Push Now** from Settings to save the first cloud copy.
-9. On other household devices, repeat Cloud Setup with the same URL, anon key, and family cloud password. Then enter the family code and Load Family.
+HomeLife does **not** save readable register transactions, budgets, pantry items, recipes, grocery lists, family codes, household names, or user names as Supabase table columns.
 
-## Important
+## Required Supabase step
 
-The app encrypts the household payload before upload. Supabase stores encrypted text, not readable budget/register JSON. Keep the family cloud password safe. If the password is lost, the cloud copy cannot be decrypted.
+1. Open your Supabase project.
+2. Go to **SQL Editor**.
+3. Run `supabase/homelife_cloud_schema.sql`.
+4. Deploy/push this HomeLife build.
+5. In HomeLife, open **Cloud Setup** and enter the family cloud password.
+6. Push the household workspace once from the main household device.
+7. On other household devices, enter the same family code and same cloud password, then pull/latest or sign in.
 
-This beta setup does not yet use Supabase Auth accounts. For a public multi-family launch, the next phase should add email/password auth, household invitations, authenticated RLS policies, and conflict history.
+## Important privacy behavior
 
+The family cloud password is not stored in Supabase and is not stored in local storage. It is kept only for the current browser session so auto-sync can work while the browser is open. Closing the browser may require re-entering the password.
 
-## Patch 2026.06.12.0015
-The HomeLife app now has the Supabase project URL and anon public key built in. Users no longer need to enter those values in Cloud Setup.
+Changing the family cloud password creates a different encrypted workspace ID. To rotate passwords, pull the current data using the old password first, then set the new password and push again.
 
-Cloud Setup now asks only for the family cloud password/passphrase and whether automatic sync should be enabled. Each household tester should use the same family code and same family cloud password on each device.
+## Why v0016 is safer than the beta cloud schema
 
-The anon public key is safe to place in the front-end app when Supabase row-level security and the included table policy are in place. Do not place a Supabase service-role key in this app.
+Earlier beta policies allowed the app to read/write encrypted rows through the table endpoint. v0016 revokes table access from `anon` and uses RPC functions that only accept one derived workspace ID at a time. This prevents app users from browsing other family rows through the HomeLife app.
+
+Because the Supabase project owner can still administer the database, the database owner may see encrypted rows and metadata in Supabase. The household contents remain unreadable without that family’s cloud password.
