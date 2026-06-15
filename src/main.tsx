@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { DEFAULT_DATA, loadData, resetData, saveData } from './services/storage';
+import { DEFAULT_DATA, loadData, mergeDefaultPriceCatalog, resetData, saveData } from './services/storage';
 import type {
   AppData,
   MealIngredient,
@@ -13,7 +13,8 @@ import type {
   Role,
   ShoppingItem,
   ShoppingList,
-  StatementImportRow
+  StatementImportRow,
+  Transaction
 } from './types';
 import './styles.css';
 
@@ -59,6 +60,11 @@ const MEAL_TYPES: MealType[] = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Prep']
 function money(value: number) {
   return (Number.isFinite(value) ? value : 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
+function accountBalance(data: AppData, accountId: string) {
+  const account = data.accounts.find((a) => a.id === accountId);
+  if (!account) return 0;
+  return account.startingBalance + data.transactions.filter((t) => t.accountId === accountId).reduce((sum, t) => sum + t.amount, 0);
+}
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 function today() { return new Date().toISOString().slice(0, 10); }
 function clean(value: string | null | undefined, fallback = '') { return String(value ?? fallback).trim(); }
@@ -85,7 +91,7 @@ function normalizeData(data: Partial<AppData> | null | undefined): AppData {
     budgetCategories: safe.budgetCategories ?? fallback.budgetCategories,
     debts: safe.debts ?? fallback.debts,
     shoppingLists: safe.shoppingLists ?? fallback.shoppingLists,
-    priceCatalog: safe.priceCatalog ?? fallback.priceCatalog,
+    priceCatalog: (safe.priceCatalog && safe.priceCatalog.length > 0) ? safe.priceCatalog : fallback.priceCatalog,
     statementImports: safe.statementImports ?? fallback.statementImports,
     pantryItems: safe.pantryItems ?? fallback.pantryItems,
     mealPlans: safe.mealPlans ?? fallback.mealPlans
@@ -178,6 +184,7 @@ function App() {
       <div className="brand-card"><div className="brand-mark">HL</div><div><h1>HomeLife</h1><p>Budget, shop, cook, and plan your household in one place.</p></div></div>
       <nav>{nav.filter((n) => n.show).map((n) => { const Icon = n.icon; return <button key={n.id} className={page === n.id ? 'active' : ''} onClick={() => setPage(n.id)}><Icon size={18} /> {n.label}</button>; })}</nav>
       {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this role.</div>}
+      <div className="version-badge">v2026.06.12.0007</div>
     </aside>
     <main>
       <header className="topbar"><div><h2>{nav.find((n) => n.id === page)?.label ?? 'Dashboard'}</h2><p>Signed in as <strong>{currentUser.name}</strong> · {currentUser.role.replace('_', ' ')}</p></div><select value={data.currentUserId} onChange={(e) => update({ ...data, currentUserId: e.target.value })}>{data.users.map((u) => <option key={u.id} value={u.id}>{u.name} — {u.role.replace('_', ' ')}</option>)}</select></header>
@@ -213,9 +220,42 @@ function Dashboard({ data, canViewFinance }: { data: AppData; canViewFinance: bo
 function Card({ title, value, detail }: { title: string; value: string; detail: string }) { return <div className="card"><p className="label">{title}</p><h3>{value}</h3><p>{detail}</p></div>; }
 
 function Register({ data, update }: { data: AppData; update: (d: AppData) => void }) {
+  const selectedAccountId = data.accounts[0]?.id ?? 'acct-checking';
+  function addAccount() {
+    const name = clean(prompt('Account name? Example: Checking, Savings, Cash Envelope')); if (!name) return;
+    const type = clean(prompt('Account type? checking, savings, cash, credit', 'checking'), 'checking');
+    const startingBalance = promptNumber('Starting balance?', 0);
+    update({ ...data, accounts: [...data.accounts, { id: uid('acct'), name, type, startingBalance }] });
+  }
+  function deleteAccount(id: string) {
+    const account = data.accounts.find((a) => a.id === id);
+    if (!account) return;
+    if (data.accounts.length <= 1) { alert('Keep at least one account in the register.'); return; }
+    if (!confirm(`Delete ${account.name}? Transactions assigned to this account will also be deleted.`)) return;
+    update({ ...data, accounts: data.accounts.filter((a) => a.id !== id), transactions: data.transactions.filter((t) => t.accountId !== id) });
+  }
+  function addTransaction() {
+    const accountId = data.accounts.length > 1 ? clean(prompt(`Account id/name? Press OK for ${data.accounts[0].name}`, data.accounts[0].name), data.accounts[0].name) : selectedAccountId;
+    const account = data.accounts.find((a) => a.id === accountId || a.name.toLowerCase() === accountId.toLowerCase()) ?? data.accounts[0];
+    if (!account) { alert('Add an account before adding transactions.'); return; }
+    const date = clean(prompt('Date? YYYY-MM-DD', today()), today());
+    const description = clean(prompt('Description? Example: Walmart Grocery')); if (!description) return;
+    const category = clean(prompt('Category? Example: Groceries, Utilities, Paycheck', 'Groceries'), 'Uncategorized');
+    const rawType = clean(prompt('Type? debit or credit', 'debit'), 'debit').toLowerCase();
+    const amountInput = Math.abs(promptNumber('Amount?', 0));
+    const amount = rawType === 'credit' ? amountInput : -amountInput;
+    const transaction: Transaction = { id: uid('txn'), accountId: account.id, date, description, category, amount, cleared: false };
+    update({ ...data, transactions: [...data.transactions, transaction].sort((a, b) => a.date.localeCompare(b.date)) });
+  }
   function toggleCleared(id: string) { update({ ...data, transactions: data.transactions.map(t => t.id === id ? { ...t, cleared: !t.cleared } : t) }); }
   function deleteTransaction(id: string) { if (confirm('Delete this transaction?')) update({ ...data, transactions: data.transactions.filter((t) => t.id !== id) }); }
-  return <div className="card wide"><h3>Check Register</h3><p className="muted">Private finance area. Restricted profiles cannot see this menu or data.</p><table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th><th>Cleared</th><th>Delete</th></tr></thead><tbody>{data.transactions.map(t => <tr key={t.id}><td>{t.date}</td><td>{t.description}</td><td>{t.category}</td><td className={t.amount < 0 ? 'negative' : 'positive'}>{money(t.amount)}</td><td><input type="checkbox" checked={t.cleared} onChange={() => toggleCleared(t.id)} /></td><td><button className="icon-danger" onClick={() => deleteTransaction(t.id)}><Trash2 size={14} /> Delete</button></td></tr>)}</tbody></table></div>;
+  return <div className="card wide">
+    <div className="split"><div><h3>Check Register</h3><p className="muted">Private finance area. Restricted profiles cannot see this menu or data. Every register add action now has a matching delete action.</p></div><div className="settings-actions"><button onClick={addTransaction}>Add Transaction</button><button onClick={addAccount}>Add Account</button></div></div>
+    <h4>Accounts</h4>
+    <table><thead><tr><th>Account</th><th>Type</th><th>Starting Balance</th><th>Current Balance</th><th>Delete</th></tr></thead><tbody>{data.accounts.map((account) => <tr key={account.id}><td>{account.name}</td><td>{account.type}</td><td>{money(account.startingBalance)}</td><td>{money(accountBalance(data, account.id))}</td><td><button className="icon-danger" onClick={() => deleteAccount(account.id)}><Trash2 size={14} /> Delete</button></td></tr>)}</tbody></table>
+    <h4>Transactions</h4>
+    {data.transactions.length === 0 ? <p className="empty-state">No register transactions yet. Use <strong>Add Transaction</strong> to enter one manually, or import a statement from the Statement Import page.</p> : <table><thead><tr><th>Date</th><th>Account</th><th>Description</th><th>Category</th><th>Amount</th><th>Cleared</th><th>Delete</th></tr></thead><tbody>{data.transactions.map(t => { const account = data.accounts.find((a) => a.id === t.accountId); return <tr key={t.id}><td>{t.date}</td><td>{account?.name ?? 'Unknown'}</td><td>{t.description}</td><td>{t.category}</td><td className={t.amount < 0 ? 'negative' : 'positive'}>{money(t.amount)}</td><td><input type="checkbox" checked={t.cleared} onChange={() => toggleCleared(t.id)} /></td><td><button className="icon-danger" onClick={() => deleteTransaction(t.id)}><Trash2 size={14} /> Delete</button></td></tr>; })}</tbody></table>}
+  </div>;
 }
 function Budget({ data, update }: { data: AppData; update: (d: AppData) => void }) {
   function deleteCategory(id: string) { if (confirm('Delete this budget category?')) update({ ...data, budgetCategories: data.budgetCategories.filter((c) => c.id !== id) }); }
@@ -228,7 +268,7 @@ function Debt({ data, update }: { data: AppData; update: (d: AppData) => void })
 
 function PriceCatalog({ data, update }: { data: AppData; update: (d: AppData) => void }) {
   const [query, setQuery] = useState('');
-  const filtered = data.priceCatalog.filter(p => `${p.name} ${p.brand ?? ''} ${p.store} ${p.category ?? ''}`.toLowerCase().includes(query.toLowerCase()));
+  const filtered = data.priceCatalog.filter(p => `${p.name} ${p.brand ?? ''} ${p.store} ${p.storeName ?? ''} ${p.category ?? ''}`.toLowerCase().includes(query.toLowerCase()));
   function addPrice() {
     const name = clean(prompt('Product name? Example: Milk')); if (!name) return;
     const store = clean(prompt('Store? Walmart, United Supermarkets, Sam\'s, Target, Other', 'Walmart'), 'Walmart');
@@ -237,11 +277,16 @@ function PriceCatalog({ data, update }: { data: AppData; update: (d: AppData) =>
     update({ ...data, priceCatalog: [...data.priceCatalog, item] });
   }
   function removePrice(id: string) { if (confirm('Remove this price record?')) update({ ...data, priceCatalog: data.priceCatalog.filter(p => p.id !== id) }); }
+  function restoreStarterCatalog() {
+    const merged = mergeDefaultPriceCatalog(data.priceCatalog);
+    update({ ...data, priceCatalog: merged });
+    alert(`Starter catalog restored. HomeLife now has ${merged.length} price records.`);
+  }
   function exportCsv() {
-    const rows = [['store','zip','name','brand','size','category','price','lastChecked','notes'], ...data.priceCatalog.map(p => [p.store, p.storeZip ?? '', p.name, p.brand ?? '', p.size ?? '', p.category ?? '', String(p.price), p.lastChecked, p.notes ?? ''])];
+    const rows = [['store','storeName','zip','name','brand','size','category','price','lastChecked','notes'], ...data.priceCatalog.map(p => [p.store, p.storeName ?? '', p.storeZip ?? '', p.name, p.brand ?? '', p.size ?? '', p.category ?? '', String(p.price), p.lastChecked, p.notes ?? ''])];
     downloadText('homelife-price-catalog.csv', rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n'));
   }
-  return <div className="card wide"><div className="split"><div><h3>Local Price Catalog</h3><p className="muted">Use this for grocery, pantry, and meal projections. Later, this page can call a Supabase Edge Function for approved Walmart/United pricing lookup without scraping.</p></div><div className="settings-actions"><button onClick={addPrice}>Add Price</button><button onClick={exportCsv}>Export CSV</button></div></div><input className="full-input" placeholder="Search Walmart milk, United tortillas, meat, spices..." value={query} onChange={e => setQuery(e.target.value)} /><table><thead><tr><th>Store</th><th>Item</th><th>Brand/Size</th><th>Category</th><th>Price</th><th>Checked</th><th>Delete</th></tr></thead><tbody>{filtered.map(p => <tr key={p.id}><td>{p.store}<br /><small>{p.storeZip}</small></td><td>{p.name}</td><td>{p.brand ?? ''} {p.size ? `· ${p.size}` : ''}</td><td>{p.category}</td><td>{money(p.price)}</td><td>{p.lastChecked}</td><td><button className="icon-danger" onClick={() => removePrice(p.id)}><Trash2 size={14} /> Delete</button></td></tr>)}</tbody></table></div>;
+  return <div className="card wide"><div className="split"><div><h3>Local Price Catalog</h3><p className="muted">Use this for grocery, pantry, and meal projections. Later, this page can call a Supabase Edge Function for approved Walmart/United pricing lookup without scraping.</p></div><div className="settings-actions"><button onClick={addPrice}>Add Price</button><button onClick={restoreStarterCatalog}>Restore Starter Catalog</button><button onClick={exportCsv}>Export CSV</button></div></div><input className="full-input" placeholder="Search Walmart milk, United tortillas, meat, spices..." value={query} onChange={e => setQuery(e.target.value)} /><table><thead><tr><th>Store</th><th>Item</th><th>Brand/Size</th><th>Category</th><th>Price</th><th>Checked</th><th>Delete</th></tr></thead><tbody>{filtered.map(p => <tr key={p.id}><td>{p.store}<br /><small>{p.storeName ?? p.storeZip}</small></td><td>{p.name}</td><td>{p.brand ?? ''} {p.size ? `· ${p.size}` : ''}</td><td>{p.category}</td><td>{money(p.price)}</td><td>{p.lastChecked}</td><td><button className="icon-danger" onClick={() => removePrice(p.id)}><Trash2 size={14} /> Delete</button></td></tr>)}</tbody></table></div>;
 }
 
 function Pantry({ data, update }: { data: AppData; update: (d: AppData) => void }) {

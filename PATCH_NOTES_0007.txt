@@ -1,0 +1,25 @@
+HomeLife v2026.06.12.0007 Patch Notes
+
+Fixes in this build:
+
+1. Register add/delete coverage
+- Added Add Transaction to the Register page.
+- Added Add Account to the Register page.
+- Added Delete buttons for each transaction.
+- Added Delete buttons for each account, with protection so the last account cannot be deleted.
+- Register now shows account balances and an empty-state message when no transactions exist.
+
+2. Price catalog restoration
+- Restored a larger starter price catalog for Walmart and United Supermarkets planning records.
+- Added a one-time localStorage repair so installs that were reduced to only a few price records are automatically topped back up.
+- Added a Restore Starter Catalog button on the Price Catalog page.
+- Price catalog export now includes storeName.
+
+3. Build validation
+- Ran npm install successfully in the sandbox.
+- Ran npm run build successfully.
+
+Deployment notes:
+- ZIP is root-level. Unzip straight into the HomeLife repository root.
+- The workflow still uses pnpm through Corepack to avoid the GitHub runner npm install bug.
+- Keep only .github/workflows/deploy.yml if duplicate Pages artifacts appear again.

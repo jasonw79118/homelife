@@ -66,3 +66,16 @@ PATCH 2026.06.12.0005
 - Added clean install safeguards that remove node_modules and package lock files before the Pages build install.
 - Removed lucide-react and replaced icons with lightweight local glyph components, which removes the package named in the ENOTEMPTY rename failure.
 - Keep only .github/workflows/deploy.yml in the repository if duplicate Pages artifacts continue.
+
+---
+PATCH 2026.06.12.0007
+
+User-reported fixes:
+- Register was missing a visible Add Transaction button. Added Add Transaction and Add Account controls directly on the Register page.
+- Register now has matching delete actions for each transaction and each account.
+- Price catalog appeared to lose prior starter prices. Added a larger Walmart + United starter price catalog and a one-time localStorage repair that restores catalog records when the saved catalog is too small.
+- Added a manual Restore Starter Catalog button on the Price Catalog page.
+
+Validation:
+- npm install completed successfully in the sandbox.
+- npm run build completed successfully.
