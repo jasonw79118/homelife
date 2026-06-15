@@ -1,0 +1,15 @@
+HomeLife Patch v2026.06.12.0019
+
+Fixes included:
+- Recipe photo capture no longer accepts OCR output blindly. It now filters obvious OCR noise and asks the user to review each detected ingredient.
+- During photo review, HomeLife asks for ingredient name, amount/unit, and estimated total cost if it must be bought.
+- Each confirmed ingredient is checked against pantry inventory. Pantry-covered items remain in the recipe cost view but are not treated as grocery-list needs.
+- Photo recipes are saved even when no ingredients are confirmed, instead of ending with a failed/no-recipe result.
+- Cloud SQL error messaging now makes clear that the Supabase RPC functions must be installed once from the SQL Editor.
+- Added SUPABASE_SQL_FIX_0019_RUN_THIS.sql with the full current backend schema and a verification query.
+
+Required cloud step:
+Run SUPABASE_SQL_FIX_0019_RUN_THIS.sql in Supabase SQL Editor, then run:
+  select public.homelife_cloud_ping();
+
+The HomeLife frontend cannot create database functions with the anon public key.
