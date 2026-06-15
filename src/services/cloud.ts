@@ -236,7 +236,7 @@ function isMissingRpcError(body: string): boolean {
 async function cloudResponseError(response: Response, action: string): Promise<Error> {
   const body = await response.text();
   if (isMissingRpcError(body)) {
-    return new Error(`${action} failed because the HomeLife Supabase SQL functions are not installed or Supabase has not refreshed its schema cache. Run supabase/homelife_cloud_schema.sql in the Supabase SQL Editor, then wait about 30 seconds and retry. Details: ${response.status} ${body}`);
+    return new Error(`${action} failed because the HomeLife Supabase SQL functions are not installed or Supabase has not refreshed its schema cache. Run SUPABASE_SQL_FIX_0019_RUN_THIS.sql or supabase/homelife_cloud_schema.sql in the Supabase SQL Editor, then wait 30-60 seconds and retry. The front-end cannot install these database functions with an anon public key. Details: ${response.status} ${body}`);
   }
   return new Error(`${action} failed: ${response.status} ${body}`);
 }

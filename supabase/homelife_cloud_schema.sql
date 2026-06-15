@@ -1,4 +1,4 @@
--- HomeLife Cloud Backend Schema v2026.06.12.0018
+-- HomeLife Cloud Backend Schema v2026.06.12.0019
 -- Run this in the Supabase SQL Editor.
 -- Privacy goal: the GitHub Pages app can save/load only an encrypted blob by
 -- one-way workspace ID. Raw household codes, household names, register rows,
@@ -88,7 +88,7 @@ language sql
 security definer
 set search_path = public
 as $$
-  select jsonb_build_object('ok', true, 'service', 'homelife_cloud', 'schema_version', '2026.06.12.0018');
+  select jsonb_build_object('ok', true, 'service', 'homelife_cloud', 'schema_version', '2026.06.12.0019');
 $$;
 
 -- Pull exactly one encrypted workspace by unguessable workspace_id.
@@ -157,3 +157,9 @@ grant execute on function public.homelife_upsert_workspace(text, text, text) to 
 
 -- Tell Supabase/PostgREST to refresh the function schema cache now.
 select pg_notify('pgrst', 'reload schema');
+
+-- Verification after running this file:
+--   select public.homelife_cloud_ping();
+-- If that returns a JSON object with ok=true, the HomeLife app can test/push/pull.
+-- If the app still says PGRST202 immediately after this succeeds, wait 60 seconds
+-- and test again so Supabase/PostgREST can refresh its schema cache.
