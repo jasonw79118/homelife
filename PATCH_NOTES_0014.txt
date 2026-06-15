@@ -1,0 +1,5 @@
+HomeLife v2026.06.12.0014
+
+Fixed the TypeScript DOM BufferSource build error in src/services/cloud.ts by ensuring base64 decoded IV/cipher bytes are backed by ArrayBuffer before Web Crypto decrypt is called.
+
+Build target: npm run build.

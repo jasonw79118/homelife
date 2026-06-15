@@ -1,0 +1,16 @@
+HomeLife v2026.06.12.0013
+
+Cloud backend sync patch.
+
+Added:
+- Optional encrypted Supabase cloud backend sync.
+- Cloud setup/test/push/pull controls on login and Settings.
+- Auto-sync support after local saves when enabled.
+- Cross-device family workspace loading by family code and cloud password.
+- Browser-side AES-GCM encryption before data leaves the device.
+- Supabase SQL schema and setup guide under /supabase.
+
+Notes:
+- GitHub Pages remains the front-end host. Supabase becomes the reachable backend.
+- Every household device needs the same Supabase URL, anon key, family code, and family cloud password.
+- This is designed for beta testing families. A later production release should add full Supabase Auth/user invites/RLS by authenticated user.

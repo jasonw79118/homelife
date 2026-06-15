@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { DEFAULT_DATA, SESSION_KEY, clearActiveHouseholdCode, createHousehold, getActiveHouseholdCode, listHouseholds, loadData, mergeDefaultPriceCatalog, normalizeHouseholdCode, resetData, saveData, setActiveHouseholdCode } from './services/storage';
+import { clearCloudSyncConfig, cloudSyncSummary, getCloudSyncConfig, isCloudSyncReady, loadCloudHousehold, saveCloudHousehold, saveCloudSyncConfig, testCloudConnection } from './services/cloud';
 import type {
   AppData,
   MealIngredient,
@@ -444,7 +445,37 @@ function isUserPinValid(user: User, attemptedPin: string): boolean {
   return !user.pin || user.pin === attemptedPin.trim();
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
+function formatSyncTime(value?: string): string {
+  if (!value) return 'just now';
+  try { return new Date(value).toLocaleString(); } catch { return value; }
+}
+
+function promptCloudConfig(): boolean {
+  const existing = getCloudSyncConfig();
+  const supabaseUrl = clean(prompt('Supabase project URL? Example: https://your-project-ref.supabase.co', existing.supabaseUrl));
+  if (!supabaseUrl) return false;
+  const anonKey = clean(prompt('Supabase anon public key?', existing.anonKey));
+  if (!anonKey) return false;
+  const passphrase = clean(prompt('Family cloud password/passphrase? Every household device will need this. It encrypts the workspace before it leaves the browser.', existing.passphrase));
+  if (!passphrase) return false;
+  const autoSync = confirm('Turn on automatic cloud sync after each save? Choose OK for yes.');
+  saveCloudSyncConfig({ enabled: true, autoSync, supabaseUrl, anonKey, passphrase, tableName: existing.tableName || 'homelife_cloud_workspaces' });
+  return true;
+}
+
+
+type CloudControls = {
+  status: string;
+  configure: () => void;
+  disable: () => void;
+  test: () => Promise<void>;
+  push: () => Promise<void>;
+  pull: () => Promise<void>;
+};
 
 function App() {
   const storedSession = readStoredSession();
@@ -461,33 +492,77 @@ function App() {
   });
   const [page, setPage] = useState('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState(cloudSyncSummary());
   const sessionUser = session ? data.users.find((u) => u.id === session.userId) : undefined;
   const currentUser = sessionUser ?? data.users.find((u) => u.id === data.currentUserId) ?? data.users[0] ?? { id: 'user-owner', name: 'Owner', role: 'owner' as Role, pin: '' };
   const canViewFinance = Boolean(sessionUser && financeRoles.includes(currentUser.role));
 
-  function persist(next: AppData, code = householdCode) {
+  async function pushDataToCloud(payload: AppData = data, code = householdCode): Promise<boolean> {
+    const config = getCloudSyncConfig();
+    if (!isCloudSyncReady(config)) {
+      setCloudStatus(cloudSyncSummary(config));
+      return false;
+    }
+    try {
+      setCloudStatus('Saving encrypted workspace to cloud...');
+      const result = await saveCloudHousehold(payload, code, payload.currentUserId, config);
+      setCloudStatus(`Cloud synced ${formatSyncTime(result.updatedAt)}`);
+      return true;
+    } catch (error) {
+      setCloudStatus(`Cloud save failed: ${errorMessage(error)}`);
+      return false;
+    }
+  }
+
+  function persist(next: AppData, code = householdCode, options: { cloud?: boolean } = {}) {
     const normalized = normalizeData({ ...next, householdId: code, inviteCode: code });
+    const normalizedCode = normalizeHouseholdCode(code || normalized.householdId) || 'DEMO';
     setData(normalized);
-    setHouseholdCode(normalizeHouseholdCode(code || normalized.householdId) || 'DEMO');
-    saveData(normalized, code);
+    setHouseholdCode(normalizedCode);
+    saveData(normalized, normalizedCode);
+    const config = getCloudSyncConfig();
+    if (options.cloud ?? (config.enabled && config.autoSync && isCloudSyncReady(config))) {
+      void pushDataToCloud(normalized, normalizedCode);
+    }
   }
 
   function update(next: AppData) {
     persist(next, householdCode);
   }
 
-  function loadHouseholdForLogin(codeInput: string) {
+  async function readCloudOrLocalHousehold(code: string): Promise<AppData> {
+    const config = getCloudSyncConfig();
+    if (isCloudSyncReady(config)) {
+      try {
+        setCloudStatus('Checking cloud workspace...');
+        const remote = await loadCloudHousehold(code, config);
+        if (remote?.data) {
+          setCloudStatus(`Loaded cloud workspace ${formatSyncTime(remote.updatedAt)}`);
+          return normalizeData({ ...remote.data, householdId: code, inviteCode: code });
+        }
+        setCloudStatus('No cloud workspace found for this code yet. Using this device.');
+      } catch (error) {
+        setCloudStatus(`Cloud load failed: ${errorMessage(error)}`);
+      }
+    } else {
+      setCloudStatus(cloudSyncSummary(config));
+    }
+    return normalizeData(loadData(code));
+  }
+
+  async function loadHouseholdForLogin(codeInput: string) {
     const code = normalizeHouseholdCode(codeInput) || 'DEMO';
-    const normalized = normalizeData(loadData(code));
+    const normalized = await readCloudOrLocalHousehold(code);
     const withHousehold = { ...normalized, householdId: code, inviteCode: code, householdName: normalized.householdName || `${code} Household` };
     setHouseholdCode(code);
     setData(withHousehold);
+    saveData(withHousehold, code);
     setActiveHouseholdCode(code);
   }
 
-  function completeLogin(codeInput: string, userId: string, pin: string) {
+  async function completeLogin(codeInput: string, userId: string, pin: string) {
     const code = normalizeHouseholdCode(codeInput) || householdCode || 'DEMO';
-    const normalized = normalizeData(loadData(code));
+    const normalized = await readCloudOrLocalHousehold(code);
     const user = normalized.users.find((u) => u.id === userId) ?? normalized.users[0];
     if (!user) { alert('No user exists for this household yet. Create a household first.'); return; }
     if (!isUserPinValid(user, pin)) { alert('That PIN does not match this user.'); return; }
@@ -508,7 +583,42 @@ function App() {
     setData(normalized);
     setSession({ householdCode: code, userId: normalized.currentUserId });
     writeStoredSession({ householdCode: code, userId: normalized.currentUserId });
+    persist(normalized, code, { cloud: isCloudSyncReady() });
     setPage('dashboard');
+  }
+
+  function configureCloudSync() {
+    if (promptCloudConfig()) setCloudStatus(cloudSyncSummary());
+  }
+
+  function disableCloudSync() {
+    if (!confirm('Disable cloud sync on this device? Local data will remain here.')) return;
+    clearCloudSyncConfig();
+    setCloudStatus(cloudSyncSummary());
+  }
+
+  async function testCloudSync() {
+    try {
+      setCloudStatus('Testing cloud connection...');
+      await testCloudConnection();
+      setCloudStatus('Cloud connection test passed.');
+    } catch (error) {
+      setCloudStatus(`Cloud test failed: ${errorMessage(error)}`);
+    }
+  }
+
+  async function pullCurrentHouseholdFromCloud() {
+    const code = normalizeHouseholdCode(householdCode) || 'DEMO';
+    try {
+      setCloudStatus('Pulling encrypted workspace from cloud...');
+      const remote = await loadCloudHousehold(code);
+      if (!remote?.data) { setCloudStatus('No cloud workspace found for this code.'); alert('No cloud workspace found for this family code yet.'); return; }
+      const normalized = normalizeData({ ...remote.data, householdId: code, inviteCode: code });
+      persist(normalized, code, { cloud: false });
+      setCloudStatus(`Pulled cloud workspace ${formatSyncTime(remote.updatedAt)}`);
+    } catch (error) {
+      setCloudStatus(`Cloud pull failed: ${errorMessage(error)}`);
+    }
   }
 
   function signOut() {
@@ -518,9 +628,18 @@ function App() {
     setPage('dashboard');
   }
 
+  const cloudControls: CloudControls = {
+    status: cloudStatus,
+    configure: configureCloudSync,
+    disable: disableCloudSync,
+    test: testCloudSync,
+    push: async () => { await pushDataToCloud(data, householdCode); },
+    pull: pullCurrentHouseholdFromCloud
+  };
+
   const activeSessionIsValid = Boolean(session && data.users.some((u) => u.id === session.userId));
   if (!activeSessionIsValid) {
-    return <LoginScreen data={data} householdCode={householdCode} onLoadHousehold={loadHouseholdForLogin} onLogin={completeLogin} onCreateHousehold={createNewHousehold} />;
+    return <LoginScreen data={data} householdCode={householdCode} cloudControls={cloudControls} onLoadHousehold={loadHouseholdForLogin} onLogin={completeLogin} onCreateHousehold={createNewHousehold} />;
   }
 
   const nav = [
@@ -548,10 +667,10 @@ function App() {
       </div>
       <nav>{visibleNav.map((n) => { const Icon = n.icon; return <button key={n.id} className={activeNav === n.id ? 'active' : ''} onClick={() => { setPage(n.id); setMobileMenuOpen(false); }}><Icon size={18} /> {n.label}</button>; })}</nav>
       {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this login.</div>}
-      <div className="version-badge">v2026.06.12.0012</div>
+      <div className="version-badge">v2026.06.12.0014</div>
     </aside>
     <main>
-      <header className="topbar"><div><h2>{nav.find((n) => n.id === activeNav)?.label ?? 'Dashboard'}</h2><p><strong>{data.householdName ?? 'Household'}</strong> · signed in as <strong>{currentUser.name}</strong> · {roleLabel(currentUser.role)}</p></div><div className="settings-actions"><span className="pill neutral">Code: {householdCode}</span><button onClick={signOut}>Switch family/user</button></div></header>
+      <header className="topbar"><div><h2>{nav.find((n) => n.id === activeNav)?.label ?? 'Dashboard'}</h2><p><strong>{data.householdName ?? 'Household'}</strong> · signed in as <strong>{currentUser.name}</strong> · {roleLabel(currentUser.role)}</p></div><div className="settings-actions"><span className="pill neutral">Code: {householdCode}</span><span className="pill neutral">{cloudStatus}</span><button onClick={signOut}>Switch family/user</button></div></header>
       {activeNav === 'dashboard' && <Dashboard data={data} canViewFinance={canViewFinance} />}
       {activeNav === 'register' && canViewFinance && <Register data={data} update={update} />}
       {activeNav === 'budget' && canViewFinance && <Budget data={data} update={update} />}
@@ -562,12 +681,12 @@ function App() {
       {activeNav === 'recipes' && <RecipeBuilder data={data} update={update} />}
       {activeNav === 'meal-planner' && <MealPlanner data={data} update={update} />}
       {activeNav === 'shopping' && <Shopping data={data} update={update} />}
-      {activeNav === 'settings' && <SettingsPage data={data} update={update} />}
+      {activeNav === 'settings' && <SettingsPage data={data} update={update} cloudControls={cloudControls} />}
     </main>
   </div>;
 }
 
-function LoginScreen({ data, householdCode, onLoadHousehold, onLogin, onCreateHousehold }: { data: AppData; householdCode: string; onLoadHousehold: (code: string) => void; onLogin: (code: string, userId: string, pin: string) => void; onCreateHousehold: (code: string, householdName: string, ownerName: string, ownerPin: string) => void }) {
+function LoginScreen({ data, householdCode, cloudControls, onLoadHousehold, onLogin, onCreateHousehold }: { data: AppData; householdCode: string; cloudControls: CloudControls; onLoadHousehold: (code: string) => Promise<void>; onLogin: (code: string, userId: string, pin: string) => Promise<void>; onCreateHousehold: (code: string, householdName: string, ownerName: string, ownerPin: string) => void }) {
   const [code, setCode] = useState(householdCode || data.inviteCode || 'DEMO');
   const [selectedUserId, setSelectedUserId] = useState(data.currentUserId || data.users[0]?.id || 'user-owner');
   const [pin, setPin] = useState('');
@@ -593,7 +712,7 @@ function LoginScreen({ data, householdCode, onLoadHousehold, onLogin, onCreateHo
         <div className="card">
           <p className="label">Sign in</p>
           <h3>Choose a family and user</h3>
-          <p className="muted">Each family code keeps a separate local test workspace. User roles control which views are visible.</p>
+          <p className="muted">Each family code can now load from the encrypted cloud backend when Cloud Sync is configured on this device.</p><div className="cloud-login-panel"><span className="pill neutral">{cloudControls.status}</span><button onClick={cloudControls.configure}>Cloud Setup</button><button onClick={cloudControls.test}>Test Cloud</button></div>
           <label className="field-label">Family code</label>
           <input className="full-input" value={code} onChange={(event) => setCode(event.target.value)} onBlur={() => loadCode(code)} placeholder="Example: WILLIAMS" />
           <button onClick={() => loadCode(code)}>Load Family</button>
@@ -607,7 +726,7 @@ function LoginScreen({ data, householdCode, onLoadHousehold, onLogin, onCreateHo
         <div className="card">
           <p className="label">New test family</p>
           <h3>Create a household workspace</h3>
-          <p className="muted">Use one code per testing family. With GitHub Pages, this is local-browser storage until we connect a cloud database.</p>
+          <p className="muted">Use one code per testing family. When Cloud Sync is configured, the household workspace is encrypted in the browser and saved to the reachable Supabase backend for other devices.</p>
           <label className="field-label">Family code</label>
           <input className="full-input" value={newCode} onChange={(event) => setNewCode(event.target.value)} placeholder="Example: SMITH-FAMILY" />
           <label className="field-label">Household name</label>
@@ -984,7 +1103,7 @@ function Shopping({ data, update }: { data: AppData; update: (d: AppData) => voi
 }
 
 function downloadText(filename: string, text: string) { const blob = new Blob([text], { type: 'text/plain' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url); }
-function SettingsPage({ data, update }: { data: AppData; update: (d: AppData) => void }) {
+function SettingsPage({ data, update, cloudControls }: { data: AppData; update: (d: AppData) => void; cloudControls: CloudControls }) {
   const backup = useMemo(() => JSON.stringify(data, null, 2), [data]);
   const currentUser = data.users.find((u) => u.id === data.currentUserId) ?? data.users[0];
   const canManageUsers = currentUser?.role === 'owner';
@@ -1033,7 +1152,10 @@ function SettingsPage({ data, update }: { data: AppData; update: (d: AppData) =>
   }
 
   return <div className="card wide">
-    <div className="split"><div><h3>Settings, Logins & Test Families</h3><p className="muted">Household code <strong>{data.inviteCode ?? data.householdId}</strong> separates each family test workspace. On GitHub Pages this uses local browser storage; cloud sharing across devices will need a database connection later.</p></div><div className="settings-actions"><button onClick={renameHousehold}>Rename Household</button><button className="primary" onClick={addUser}><PlusCircle size={14} /> Add User Login</button></div></div>
+    <div className="split"><div><h3>Settings, Logins & Test Families</h3><p className="muted">Household code <strong>{data.inviteCode ?? data.householdId}</strong> separates each family test workspace. Cloud Sync lets the same family workspace follow users across phones, computers, and networks.</p></div><div className="settings-actions"><button onClick={renameHousehold}>Rename Household</button><button className="primary" onClick={addUser}><PlusCircle size={14} /> Add User Login</button></div></div>
+    <div className="card inset-card cloud-card">
+      <div className="split"><div><h4>Reachable Cloud Backend</h4><p className="muted">Status: <strong>{cloudControls.status}</strong>. The workspace is encrypted in the browser before saving to Supabase, then any household device can pull it using the same family code and cloud password.</p></div><div className="settings-actions"><button onClick={cloudControls.configure}>Cloud Setup</button><button onClick={cloudControls.test}>Test</button><button className="primary" onClick={cloudControls.push}>Push Now</button><button onClick={cloudControls.pull}>Pull Latest</button><button className="danger" onClick={cloudControls.disable}>Disable</button></div></div>
+    </div>
     <h4>User logins and view controls</h4>
     <table><thead><tr><th>User</th><th>Role</th><th>PIN</th><th>Register/Budget/Debt</th><th>Statement Import</th><th>Recipes/Meals/Pantry/Shopping/Prices</th><th>Actions</th></tr></thead><tbody>{data.users.map(u => <tr key={u.id}><td>{u.name}</td><td>{roleLabel(u.role)}</td><td>{u.pin ? 'Set' : 'Blank'}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>Visible/shared</td><td><div className="row-actions"><button onClick={() => changeRole(u.id)}>Role</button><button onClick={() => changePin(u.id)}>PIN</button><button className="icon-danger" onClick={() => deleteUser(u.id)}><Trash2 size={14} /> Delete</button></div></td></tr>)}</tbody></table>
     <h4>Role guide</h4>

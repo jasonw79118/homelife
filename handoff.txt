@@ -101,3 +101,10 @@ v2026.06.12.0012
 - Added user management and role-based view controls in Settings.
 - Added local optional PIN support per user.
 - Note: GitHub Pages cannot persist shared cloud accounts by itself; each family/device stores locally unless a database layer is added.
+
+
+--- v2026.06.12.0013 ---
+Added optional encrypted Supabase cloud backend sync so households can use the same workspace from any network/location. See CLOUD_BACKEND_SETUP_0013.md and supabase/homelife_cloud_schema.sql.
+
+--- v2026.06.12.0014 ---
+Fixed TypeScript Web Crypto BufferSource compatibility issue in cloud decrypt path. This resolves the local build error at src/services/cloud.ts line 149.
