@@ -1,0 +1,12 @@
+HomeLife v2026.06.12.0023
+
+- Ingredient categories are no longer guessed from catalog or pantry matches.
+- Added an ingredient category prompt for manual ingredient entry, photo ingredient review, and ingredient editing.
+- Changed recipe ingredient display to show "Category not set" when the user has not selected a category.
+- Added "ground" to matching stopwords so items like ground ginger do not get matched to ground beef or other ground meats just because of the word ground.
+- Added Edit Instructions on Recipe Builder cards so cooking steps can be added or changed later.
+- Smart Text Recipe can now preserve directions/instructions from pasted recipe text.
+- Photo recipes now ask for optional cooking instructions when saving the recipe.
+- Version bumped to v2026.06.12.0023.
+
+Build: npm run build completed successfully.

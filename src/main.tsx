@@ -83,6 +83,13 @@ function parseNumber(value: string | null | undefined, fallback = 0) {
 }
 function promptNumber(label: string, fallback = 0) { return parseNumber(prompt(label, String(fallback)), fallback); }
 
+function promptIngredientCategory(current?: string): string | undefined {
+  const category = clean(prompt(`Ingredient category? Leave blank if you want to decide later.
+
+Common choices: ${PANTRY_CATEGORIES.join(', ')}`, current ?? ''));
+  return category || undefined;
+}
+
 function normalizeCategory(value: string | null | undefined): PantryCategory {
   const match = PANTRY_CATEGORIES.find((category) => category.toLowerCase() === clean(value).toLowerCase());
   return match ?? 'Other';
@@ -262,7 +269,7 @@ function normalizeData(data: Partial<AppData> | null | undefined): AppData {
 
 const INGREDIENT_TOKEN_STOPWORDS = new Set([
   'fresh', 'frozen', 'canned', 'can', 'cans', 'jar', 'jars', 'package', 'packages', 'pkg', 'bag', 'bags', 'box', 'boxes',
-  'large', 'small', 'medium', 'whole', 'chopped', 'diced', 'sliced', 'shredded', 'minced', 'crushed', 'optional',
+  'large', 'small', 'medium', 'whole', 'ground', 'chopped', 'diced', 'sliced', 'shredded', 'minced', 'crushed', 'optional',
   'divided', 'drained', 'rinsed', 'cooked', 'uncooked', 'boneless', 'skinless', 'lean', 'extra', 'about', 'of', 'and', 'or', 'the'
 ]);
 
@@ -377,7 +384,7 @@ function buildIngredientFromParts(data: AppData, name: string, quantity = 1, uni
     name: catalog?.name ?? pantry?.name ?? clean(name, 'Ingredient'),
     quantity: safeQuantity || 1,
     unit: safeUnit,
-    category: normalizeCategory(catalog?.category ?? pantry?.category ?? 'Other'),
+    category: undefined,
     estimatedPrice: Math.max(0, safeNumber(defaultEstimate, 0)),
     pantryCovered,
     pantryItemId: pantryCovered ? pantry?.id : undefined,
@@ -390,7 +397,7 @@ function buildIngredientFromParts(data: AppData, name: string, quantity = 1, uni
 function refreshIngredientAgainstPantry(data: AppData, ingredient: MealIngredient, preferredStore?: string): MealIngredient {
   const storePreference = preferredStore ?? ingredient.store ?? DEFAULT_RECIPE_STORE;
   const refreshed = buildIngredientFromParts(data, ingredient.name, ingredient.quantity, ingredient.unit, ingredient.estimatedPrice, storePreference);
-  return { ...ingredient, ...refreshed, id: ingredient.id, notes: ingredient.notes ?? refreshed.notes };
+  return { ...ingredient, ...refreshed, id: ingredient.id, category: ingredient.category, notes: ingredient.notes ?? refreshed.notes };
 }
 
 function ingredientToShoppingItem(meal: MealPlanItem, ingredient: MealIngredient): ShoppingItem {
@@ -492,6 +499,16 @@ function stripRecipeNoise(text: string): string {
   out = out.split('STOP_RECIPE_DIRECTIONS')[0] ?? out;
   return out.replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim();
 }
+
+function extractRecipeInstructions(text: string): string {
+  const raw = clean(text).replace(/\r/g, '\n');
+  const match = raw.match(/(?:directions?|instructions?|method|preparation|prep|steps?)\s*:?\s*([\s\S]+)/i);
+  if (!match) return '';
+  return clean(match[1]
+    .replace(/\b(nutrition|calories|servings?|yield|cook time|prep time|total time)\b[\s\S]*$/i, '')
+    .replace(/\n{3,}/g, '\n\n'));
+}
+
 
 function splitIngredientCandidates(text: string): string[] {
   const cleaned = stripRecipeNoise(text);
@@ -662,10 +679,11 @@ function buildIngredientFromPrompt(data: AppData, preferredStore = DEFAULT_RECIP
   const quantity = promptNumber('Quantity needed for this meal or recipe?', starter.quantity);
   const unit = clean(prompt('Unit? Example: lb, cup, can, package, tsp', starter.unit), starter.unit);
   const estimatedPrice = promptNumber('Estimated total cost for this meal amount? Use 0 if it is fully accounted for.', starter.estimatedPrice);
+  const category = promptIngredientCategory(starter.category);
   const refreshed = buildIngredientFromParts(data, requestedName, quantity, unit, estimatedPrice, preferredStore);
   const pantryNote = refreshed.pantryCovered ? 'already covered by pantry' : 'needs grocery list if used in a meal';
   const finalPantryCovered = refreshed.pantryCovered || confirm(`${refreshed.name} is currently marked as ${pantryNote}. Mark it as pantry-covered anyway?`);
-  return { ...refreshed, pantryCovered: finalPantryCovered, pantryItemId: finalPantryCovered ? refreshed.pantryItemId : undefined };
+  return { ...refreshed, category, pantryCovered: finalPantryCovered, pantryItemId: finalPantryCovered ? refreshed.pantryItemId : undefined };
 }
 
 type LoginSession = { householdCode: string; userId: string };
@@ -994,7 +1012,7 @@ function App() {
       </div>
       <nav>{visibleNav.map((n) => { const Icon = n.icon; return <button key={n.id} className={activeNav === n.id ? 'active' : ''} onClick={() => { setPage(n.id); setMobileMenuOpen(false); }}><Icon size={18} /> {n.label}</button>; })}</nav>
       {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this login.</div>}
-      <div className="version-badge">v2026.06.12.0022</div>
+      <div className="version-badge">v2026.06.12.0023</div>
     </aside>
     <main>
       <header className="topbar"><div><h2>{nav.find((n) => n.id === activeNav)?.label ?? 'Dashboard'}</h2><p><strong>{data.householdName ?? 'Household'}</strong> · signed in as <strong>{currentUser.name}</strong> · {roleLabel(currentUser.role)}</p></div><div className="settings-actions"><span className="pill neutral">Code: {householdCode}</span><span className="pill neutral">{cloudStatus}</span><button onClick={signOut}>Switch family/user</button></div></header>
@@ -1332,6 +1350,7 @@ function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) =
     if (!name) return;
     const quantity = Math.max(0, promptNumber(`Quantity needed for ${name}?`, ingredient.quantity));
     const unit = clean(prompt(`Unit for ${name}?`, ingredient.unit), ingredient.unit);
+    const category = promptIngredientCategory(ingredient.category);
     const catalog = findCatalogMatch(name, data.priceCatalog, preferredStore);
     const catalogEstimate = estimateIngredientCostFromCatalog(catalog, quantity, unit);
     const pantry = findPantryMatch(name, data.pantryItems);
@@ -1357,6 +1376,7 @@ This is the total recipe cost for ${quantity} ${unit} ${name}.`, suggestedPrice)
       name,
       quantity: quantity || 1,
       unit,
+      category,
       estimatedPrice,
       pantryCovered,
       pantryItemId: pantryCovered ? (pantry?.id ?? rebuilt.pantryItemId) : undefined,
@@ -1365,6 +1385,13 @@ This is the total recipe cost for ${quantity} ${unit} ${name}.`, suggestedPrice)
       notes: clean(prompt('Ingredient notes? Optional', ingredient.notes ?? rebuilt.notes ?? ''), ingredient.notes ?? rebuilt.notes ?? '') || undefined
     };
     update({ ...data, recipes: data.recipes.map((item) => item.id === recipeId ? { ...item, ingredients: item.ingredients.map((candidate) => candidate.id === ingredientId ? updatedIngredient : candidate), updatedAt: new Date().toISOString() } : item) });
+  }
+
+  function editRecipeInstructions(recipeId: string) {
+    const recipe = data.recipes.find((item) => item.id === recipeId);
+    if (!recipe) return;
+    const instructions = clean(prompt('Recipe instructions? Add or update cooking steps here.', recipe.instructions ?? '')) || undefined;
+    update({ ...data, recipes: data.recipes.map((item) => item.id === recipeId ? { ...item, instructions, updatedAt: new Date().toISOString() } : item) });
   }
 
   function parseIngredientsFromText(text: string): MealIngredient[] {
@@ -1399,6 +1426,7 @@ Press Cancel or leave blank to skip this line.`, startingCatalog?.name ?? candid
       const starter = buildIngredientFromParts(data, correctedName, candidate.quantity, candidate.unit, undefined, preferredStore);
       const quantity = promptNumber(`How much ${correctedName} is needed for this recipe?`, starter.quantity);
       const unit = clean(prompt(`Unit for ${correctedName}? Example: lb, cup, can, package, tsp`, starter.unit), starter.unit);
+      const category = promptIngredientCategory(candidate.category);
       const catalogMatch = findCatalogMatch(correctedName, data.priceCatalog, preferredStore);
       const preliminary = buildIngredientFromParts(data, correctedName, quantity, unit, undefined, preferredStore);
       const preliminaryCheck = refreshIngredientAgainstPantry(data, preliminary, preferredStore);
@@ -1419,6 +1447,7 @@ This should be the estimated total cost added to the grocery list if you need to
       const finalCheck = refreshIngredientAgainstPantry(data, finalIngredient, preferredStore);
       reviewed.push({
         ...finalIngredient,
+        category,
         pantryCovered: finalCheck.pantryCovered,
         pantryItemId: finalCheck.pantryCovered ? finalCheck.pantryItemId : undefined,
         priceCatalogItemId: finalIngredient.priceCatalogItemId ?? catalogMatch?.id,
@@ -1546,6 +1575,7 @@ This should be the estimated total cost added to the grocery list if you need to
     }
     const name = clean(prompt('Recipe name for this photo?', file.name.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ')), 'Photo Recipe');
     const servings = promptNumber('Servings?', 4);
+    const instructions = clean(prompt('Cooking instructions? Optional — paste or type the recipe steps here.', ''), '') || undefined;
     const timestamp = new Date().toISOString();
     const recipe: Recipe = {
       id: uid('recipe'),
@@ -1553,6 +1583,7 @@ This should be the estimated total cost added to the grocery list if you need to
       servings: Math.max(1, servings),
       category: ingredients.length ? 'Photo Import' : 'Photo Review Needed',
       ingredients,
+      instructions,
       source: 'photo',
       photoName: file.name,
       photoDataUrl,
@@ -1578,7 +1609,8 @@ This should be the estimated total cost added to the grocery list if you need to
     if (!recipeText) return;
     const parsed = smartParseIngredientsFromText(data, recipeText, preferredStore);
     if (!parsed.ingredients.length) { alert('HomeLife could not identify ingredients from that text.'); return; }
-    update({ ...data, recipes: data.recipes.map((recipe) => recipe.id === recipeId ? { ...recipe, ingredients: [...recipe.ingredients, ...parsed.ingredients], notes: recipe.notes ?? 'Updated from smart recipe text.', updatedAt: new Date().toISOString() } : recipe) });
+    const parsedInstructions = extractRecipeInstructions(recipeText);
+    update({ ...data, recipes: data.recipes.map((recipe) => recipe.id === recipeId ? { ...recipe, ingredients: [...recipe.ingredients, ...parsed.ingredients], instructions: recipe.instructions || parsedInstructions || undefined, notes: recipe.notes ?? 'Updated from smart recipe text.', updatedAt: new Date().toISOString() } : recipe) });
     setPhotoStatus(`Added ${parsed.ingredients.length} ingredient(s) from smart text.`);
   }
 
@@ -1611,14 +1643,15 @@ This should be the estimated total cost added to the grocery list if you need to
     const firstMeaningfulLine = splitIngredientCandidates(parsed.sourceText)[0] ?? 'Smart Recipe';
     const name = clean(prompt('Recipe name?', titleCaseIngredient(firstMeaningfulLine.replace(/^\d+\s*(cup|cups|tbsp|tsp|lb|lbs|oz|can|package|item)?\s*/i, '').slice(0, 50))), 'Smart Recipe');
     const servings = promptNumber('Servings?', 4);
+    const instructions = clean(prompt('Cooking instructions? Optional — HomeLife found/preserved this if the pasted text included directions.', extractRecipeInstructions(recipeText)), '') || undefined;
     const timestamp = new Date().toISOString();
-    const recipe: Recipe = { id: uid('recipe'), name, servings: Math.max(1, servings), category: 'Smart Text Import', ingredients: parsed.ingredients, source: 'manual', notes: 'Built from smart recipe text parsing.', createdAt: timestamp, updatedAt: timestamp };
+    const recipe: Recipe = { id: uid('recipe'), name, servings: Math.max(1, servings), category: 'Smart Text Import', ingredients: parsed.ingredients, instructions, source: 'manual', notes: 'Built from smart recipe text parsing.', createdAt: timestamp, updatedAt: timestamp };
     update({ ...data, recipes: [...data.recipes, recipe] });
   }
 
   return <div className="recipe-page">
-    <div className="card wide"><div className="split"><div><h3>Recipe Builder</h3><p className="muted">Build reusable recipes manually, from smart pasted recipe text, or from photo-assisted capture. Choose the store HomeLife should use first for catalog prices. Photo capture checks the pantry, searches that store's price catalog first, and lets you confirm or edit the matched price before missing items go to the grocery list.</p></div><div className="settings-actions"><button className="primary" onClick={addRecipe}><PlusCircle size={16} /> Add Manual Recipe</button><button onClick={addRecipeFromSmartText}>Smart Text Recipe</button><label className="button-like"><Camera size={16} /> Add Recipe From Photo<input type="file" accept="image/*" capture="environment" onChange={addRecipeFromPhoto} hidden /></label></div></div><div className="form-grid"><label>Recipe price store<select value={preferredStore} onChange={(event) => changePreferredStore(event.target.value)}>{storeOptions.map((store) => <option key={store} value={store}>{store}</option>)}</select></label><p className="muted">Using {preferredStore} first for recipe pricing · {preferredStoreCatalogCount} catalog item(s). Add another store on the Price Catalog page and it will appear here.</p></div>{photoStatus && <div className="status-banner">{photoStatus}</div>}<input className="full-input" placeholder="Search recipes, categories, notes, or ingredients..." value={query} onChange={(event) => setQuery(event.target.value)} /><div className="totals"><span>Recipes: <strong>{data.recipes.length}</strong></span><span>Visible: <strong>{recipes.length}</strong></span></div></div>
-    <div className="grid two">{recipes.map((recipe) => <div className="card recipe-card" key={recipe.id}>{recipe.photoDataUrl && <img className="recipe-photo" src={recipe.photoDataUrl} alt={`${recipe.name} import`} />}<div className="split"><div><p className="label">{recipe.category ?? 'Recipe'} · {recipe.servings} serving(s) · {recipe.source}</p><h3>{recipe.name}</h3><p>{recipe.notes}</p></div><button className="icon-danger" onClick={() => deleteRecipe(recipe.id)}><Trash2 size={14} /> Delete Recipe</button></div><div className="meal-costs"><span>Recipe value: <strong>{money(recipeTotal(recipe))}</strong></span><span>Need to buy now: <strong>{money(recipeMissingTotal(recipe))}</strong></span><span>Ingredients: <strong>{recipe.ingredients.length}</strong></span></div><div className="settings-actions"><button onClick={() => addIngredient(recipe.id)}>Add Ingredient</button><label className="button-like"><Camera size={16} /> Add Ingredient Photo<input type="file" accept="image/*" capture="environment" onChange={(event) => addPhotoIngredient(recipe.id, event)} hidden /></label><button onClick={() => addSmartTextToRecipe(recipe.id)}>Add Smart Text</button><button onClick={() => refreshRecipe(recipe.id)}>Refresh Pantry Check</button><button onClick={() => planRecipe(recipe)}>Plan as Meal</button><button onClick={() => addRecipeMissingToGrocery(recipe)}>Missing to Grocery List</button></div>{recipe.instructions && <p className="instructions"><strong>Instructions:</strong> {recipe.instructions}</p>}<ul className="ingredient-list">{recipe.ingredients.map((ingredient) => { const refreshed = refreshIngredientAgainstPantry(data, ingredient, preferredStore); return <li key={ingredient.id}><div><strong>{ingredient.name}</strong><small>{ingredient.quantity} {ingredient.unit} · {ingredient.category ?? 'Other'} · {refreshed.pantryCovered ? 'pantry covered' : 'buy'} · {money(ingredient.estimatedPrice)} {ingredient.store ? `· ${ingredient.store}` : ''}</small></div><div className="row-actions"><button onClick={() => editIngredient(recipe.id, ingredient.id)}>Edit</button><button className="icon-danger" onClick={() => deleteIngredient(recipe.id, ingredient.id)}><Trash2 size={14} /> Delete</button></div></li>; })}</ul></div>)}</div>
+    <div className="card wide"><div className="split"><div><h3>Recipe Builder</h3><p className="muted">Build reusable recipes manually, from smart pasted recipe text, or from photo-assisted capture. Choose the store HomeLife should use first for catalog prices. Photo capture checks the pantry, searches that store's price catalog first, and lets you confirm or edit the matched price before missing items go to the grocery list. Ingredient categories are left for you to choose instead of being guessed from price matches.</p></div><div className="settings-actions"><button className="primary" onClick={addRecipe}><PlusCircle size={16} /> Add Manual Recipe</button><button onClick={addRecipeFromSmartText}>Smart Text Recipe</button><label className="button-like"><Camera size={16} /> Add Recipe From Photo<input type="file" accept="image/*" capture="environment" onChange={addRecipeFromPhoto} hidden /></label></div></div><div className="form-grid"><label>Recipe price store<select value={preferredStore} onChange={(event) => changePreferredStore(event.target.value)}>{storeOptions.map((store) => <option key={store} value={store}>{store}</option>)}</select></label><p className="muted">Using {preferredStore} first for recipe pricing · {preferredStoreCatalogCount} catalog item(s). Add another store on the Price Catalog page and it will appear here.</p></div>{photoStatus && <div className="status-banner">{photoStatus}</div>}<input className="full-input" placeholder="Search recipes, categories, notes, or ingredients..." value={query} onChange={(event) => setQuery(event.target.value)} /><div className="totals"><span>Recipes: <strong>{data.recipes.length}</strong></span><span>Visible: <strong>{recipes.length}</strong></span></div></div>
+    <div className="grid two">{recipes.map((recipe) => <div className="card recipe-card" key={recipe.id}>{recipe.photoDataUrl && <img className="recipe-photo" src={recipe.photoDataUrl} alt={`${recipe.name} import`} />}<div className="split"><div><p className="label">{recipe.category ?? 'Recipe'} · {recipe.servings} serving(s) · {recipe.source}</p><h3>{recipe.name}</h3><p>{recipe.notes}</p></div><button className="icon-danger" onClick={() => deleteRecipe(recipe.id)}><Trash2 size={14} /> Delete Recipe</button></div><div className="meal-costs"><span>Recipe value: <strong>{money(recipeTotal(recipe))}</strong></span><span>Need to buy now: <strong>{money(recipeMissingTotal(recipe))}</strong></span><span>Ingredients: <strong>{recipe.ingredients.length}</strong></span></div><div className="settings-actions"><button onClick={() => addIngredient(recipe.id)}>Add Ingredient</button><label className="button-like"><Camera size={16} /> Add Ingredient Photo<input type="file" accept="image/*" capture="environment" onChange={(event) => addPhotoIngredient(recipe.id, event)} hidden /></label><button onClick={() => addSmartTextToRecipe(recipe.id)}>Add Smart Text</button><button onClick={() => refreshRecipe(recipe.id)}>Refresh Pantry Check</button><button onClick={() => editRecipeInstructions(recipe.id)}>Edit Instructions</button><button onClick={() => planRecipe(recipe)}>Plan as Meal</button><button onClick={() => addRecipeMissingToGrocery(recipe)}>Missing to Grocery List</button></div>{recipe.instructions && <p className="instructions"><strong>Instructions:</strong> {recipe.instructions}</p>}<ul className="ingredient-list">{recipe.ingredients.map((ingredient) => { const refreshed = refreshIngredientAgainstPantry(data, ingredient, preferredStore); return <li key={ingredient.id}><div><strong>{ingredient.name}</strong><small>{ingredient.quantity} {ingredient.unit} · {ingredient.category ?? 'Category not set'} · {refreshed.pantryCovered ? 'pantry covered' : 'buy'} · {money(ingredient.estimatedPrice)} {ingredient.store ? `· ${ingredient.store}` : ''}</small></div><div className="row-actions"><button onClick={() => editIngredient(recipe.id, ingredient.id)}>Edit</button><button className="icon-danger" onClick={() => deleteIngredient(recipe.id, ingredient.id)}><Trash2 size={14} /> Delete</button></div></li>; })}</ul></div>)}</div>
   </div>;
 }
 
@@ -1667,7 +1700,7 @@ function MealPlanner({ data, update }: { data: AppData; update: (d: AppData) => 
   }
   return <div className="meal-page">
     <div className="card wide"><div className="split"><div><h3>Meal Planner</h3><p className="muted">Plan meals manually or from Recipe Builder, refresh pantry coverage, and send only the missing ingredients to a grocery list. Each meal shows total value and new grocery cost.</p></div><div className="settings-actions"><button className="primary" onClick={addMeal}><CookingPot size={16} /> Add Meal</button><button onClick={planFromRecipe}><BookOpen size={16} /> Plan From Recipe</button></div></div><div className="totals"><span>Planned meals: <strong>{data.mealPlans.length}</strong></span><span>Total food value: <strong>{money(allMealTotalCost(data.mealPlans))}</strong></span><span>New grocery cost: <strong>{money(allMealGroceryCost(data.mealPlans))}</strong></span></div></div>
-    <div className="grid two">{meals.map((meal) => <div className="card meal-card" key={meal.id}><div className="split"><div><p className="label">{meal.date} · {meal.mealType} · {meal.servings} serving(s)</p><h3>{meal.name}</h3><p>{meal.notes}</p></div><button className="icon-danger" onClick={() => deleteMeal(meal.id)}><Trash2 size={14} /> Delete Meal</button></div><div className="meal-costs"><span>Total: <strong>{money(mealTotalCost(meal))}</strong></span><span>Pantry covered: <strong>{money(mealPantryCoveredCost(meal))}</strong></span><span>Need to buy: <strong>{money(mealGroceryCost(meal))}</strong></span></div><div className="settings-actions"><button onClick={() => addIngredient(meal.id)}>Add Ingredient</button><button onClick={() => addMealToGroceryList(meal)}>Add Missing to Grocery List</button></div><ul className="ingredient-list">{meal.ingredients.map((ingredient) => <li key={ingredient.id}><div><strong>{ingredient.name}</strong><small>{ingredient.quantity} {ingredient.unit} · {ingredient.category ?? 'Other'} · {ingredient.pantryCovered ? 'pantry covered' : 'buy'} · {money(ingredient.estimatedPrice)} {ingredient.store ? `· ${ingredient.store}` : ''}</small></div><button className="icon-danger" onClick={() => deleteIngredient(meal.id, ingredient.id)}><Trash2 size={14} /> Delete</button></li>)}</ul></div>)}</div>
+    <div className="grid two">{meals.map((meal) => <div className="card meal-card" key={meal.id}><div className="split"><div><p className="label">{meal.date} · {meal.mealType} · {meal.servings} serving(s)</p><h3>{meal.name}</h3><p>{meal.notes}</p></div><button className="icon-danger" onClick={() => deleteMeal(meal.id)}><Trash2 size={14} /> Delete Meal</button></div><div className="meal-costs"><span>Total: <strong>{money(mealTotalCost(meal))}</strong></span><span>Pantry covered: <strong>{money(mealPantryCoveredCost(meal))}</strong></span><span>Need to buy: <strong>{money(mealGroceryCost(meal))}</strong></span></div><div className="settings-actions"><button onClick={() => addIngredient(meal.id)}>Add Ingredient</button><button onClick={() => addMealToGroceryList(meal)}>Add Missing to Grocery List</button></div><ul className="ingredient-list">{meal.ingredients.map((ingredient) => <li key={ingredient.id}><div><strong>{ingredient.name}</strong><small>{ingredient.quantity} {ingredient.unit} · {ingredient.category ?? 'Category not set'} · {ingredient.pantryCovered ? 'pantry covered' : 'buy'} · {money(ingredient.estimatedPrice)} {ingredient.store ? `· ${ingredient.store}` : ''}</small></div><button className="icon-danger" onClick={() => deleteIngredient(meal.id, ingredient.id)}><Trash2 size={14} /> Delete</button></li>)}</ul></div>)}</div>
   </div>;
 }
 

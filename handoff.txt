@@ -121,7 +121,7 @@ v2026.06.12.0018
 - Improved Recipe Builder capture: natural recipe text parser, browser OCR hook, barcode/catalog lookup, Smart Text Recipe import, and no comma-only ingredient requirement.
 - Build passed with npm run build.
 
-v2026.06.12.0022
+v2026.06.12.0023
 - Removed seeded United Supermarkets starter catalog records while preserving manually-added custom store records.
 - Expanded Walmart starter catalog to 218 planning records.
 - Added Recipe Builder store selector; selected store is used first for recipe ingredient price matching, photo review, smart text import, and ingredient editing.
