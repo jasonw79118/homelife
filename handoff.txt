@@ -59,3 +59,10 @@ PATCH 2026.06.12.0005
 - Updated tsconfig include list so TypeScript only compiles the active HomeLife app entry, active shared types, active storage service, and declaration files. This prevents unused legacy data files from breaking npm run build.
 - Added compatibility to src/types.ts for existing starter data values: role child, price catalog storeName metadata, and Sams/warehouse shopping list types.
 - This ZIP remains root-level and can be extracted directly into the repository root.
+
+
+2026.06.12.0006 Deployment Fix
+- Switched GitHub Actions dependency install/build from npm to pnpm through Corepack to avoid the npm CLI runner failure: "Exit handler never called".
+- Added clean install safeguards that remove node_modules and package lock files before the Pages build install.
+- Removed lucide-react and replaced icons with lightweight local glyph components, which removes the package named in the ENOTEMPTY rename failure.
+- Keep only .github/workflows/deploy.yml in the repository if duplicate Pages artifacts continue.

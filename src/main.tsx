@@ -1,20 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import {
-  Archive,
-  BarChart3,
-  CookingPot,
-  EyeOff,
-  FileSearch,
-  Home,
-  Landmark,
-  Settings,
-  ShoppingCart,
-  Tags,
-  Trash2,
-  Utensils,
-  WalletCards
-} from 'lucide-react';
+
 import { DEFAULT_DATA, loadData, resetData, saveData } from './services/storage';
 import type {
   AppData,
@@ -30,6 +16,25 @@ import type {
   StatementImportRow
 } from './types';
 import './styles.css';
+
+type IconProps = { size?: number };
+function IconGlyph({ label, size = 16 }: IconProps & { label: string }) {
+  return <span className="inline-icon" style={{ fontSize: `${size}px` }} aria-hidden="true">{label}</span>;
+}
+const Archive = (props: IconProps) => <IconGlyph label="▣" {...props} />;
+const BarChart3 = (props: IconProps) => <IconGlyph label="▥" {...props} />;
+const CookingPot = (props: IconProps) => <IconGlyph label="🍲" {...props} />;
+const EyeOff = (props: IconProps) => <IconGlyph label="◌" {...props} />;
+const FileSearch = (props: IconProps) => <IconGlyph label="⌕" {...props} />;
+const Home = (props: IconProps) => <IconGlyph label="⌂" {...props} />;
+const Landmark = (props: IconProps) => <IconGlyph label="▤" {...props} />;
+const Settings = (props: IconProps) => <IconGlyph label="⚙" {...props} />;
+const ShoppingCart = (props: IconProps) => <IconGlyph label="🛒" {...props} />;
+const Tags = (props: IconProps) => <IconGlyph label="🏷" {...props} />;
+const Trash2 = (props: IconProps) => <IconGlyph label="×" {...props} />;
+const Utensils = (props: IconProps) => <IconGlyph label="🍽" {...props} />;
+const WalletCards = (props: IconProps) => <IconGlyph label="▧" {...props} />;
+
 
 const financeRoles: Role[] = ['owner', 'financial_manager'];
 const PANTRY_CATEGORIES: PantryCategory[] = [

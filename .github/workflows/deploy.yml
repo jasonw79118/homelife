@@ -26,21 +26,22 @@ jobs:
         with:
           node-version: 20
 
-      - name: Force public npm registry and stable npm
+      - name: Setup pnpm to avoid npm install runner bug
         run: |
-          npm config set registry https://registry.npmjs.org/
-          npm install -g npm@10.9.2 --registry=https://registry.npmjs.org/
-          npm --version
+          corepack enable
+          corepack prepare pnpm@9.15.4 --activate
           node --version
+          pnpm --version
 
-      - name: Install dependencies
+      - name: Install dependencies cleanly
         run: |
-          npm cache clean --force
-          npm install --no-audit --no-fund --prefer-online --registry=https://registry.npmjs.org/ || \
-          (npm cache clean --force && npm install --no-audit --no-fund --prefer-online --registry=https://registry.npmjs.org/)
+          rm -rf node_modules package-lock.json pnpm-lock.yaml "$RUNNER_TEMP/pnpm-store"
+          pnpm config set registry https://registry.npmjs.org/
+          pnpm config set store-dir "$RUNNER_TEMP/pnpm-store"
+          pnpm install --no-frozen-lockfile --prefer-offline=false
 
       - name: Build
-        run: npm run build
+        run: pnpm run build
 
       - name: Copy SPA fallback
         run: cp dist/index.html dist/404.html

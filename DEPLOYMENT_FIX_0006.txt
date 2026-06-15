@@ -1,0 +1,16 @@
+HomeLife deployment fix 2026.06.12.0006
+
+This patch changes the GitHub Pages workflow from npm install to pnpm install through Corepack.
+Reason: the GitHub runner was failing inside npm itself with "Exit handler never called" and then a retry left node_modules in a partial state, causing ENOTEMPTY on lucide-react.
+
+Changes:
+1. .github/workflows/deploy.yml now uses pnpm for the GitHub Actions install/build path.
+2. The workflow removes node_modules, package-lock.json, pnpm-lock.yaml, and the temporary pnpm store before installing.
+3. lucide-react was removed from package.json and replaced with lightweight built-in icon glyphs in src/main.tsx, reducing install size and eliminating the exact package that hit the ENOTEMPTY rename error.
+4. Version bumped to 2026.06.12.0006.
+
+Important manual cleanup:
+If your repo still has other workflow files in .github/workflows, delete or disable the older deploy workflow files before pushing. Keep this file only:
+.github/workflows/deploy.yml
+
+The punycode message from actions/deploy-pages is a warning, not the failing error. The failure was dependency installation.
