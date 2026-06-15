@@ -3,6 +3,8 @@ import type { AppData } from '../types';
 
 const CLOUD_CONFIG_KEY = 'homelife-cloud-sync-v1';
 const DEFAULT_TABLE = 'homelife_cloud_workspaces';
+const BUILT_IN_SUPABASE_URL = 'https://mbxvdynhcqjjudejuwwb.supabase.co';
+const BUILT_IN_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ieHZkeW5oY3FqanVkZWp1d3diIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyMDMzODMsImV4cCI6MjA5Njc3OTM4M30.7toFDT2MSRrKdfQufZ7hkiI0nJ2xEWjs_Oe7JrtjAVA';
 
 type ImportMetaWithEnv = ImportMeta & { env?: Record<string, string | undefined> };
 
@@ -31,12 +33,15 @@ function envValue(name: string): string {
 }
 
 function defaultConfig(): CloudSyncConfig {
+  const supabaseUrl = envValue('VITE_HOMELIFE_SUPABASE_URL') || BUILT_IN_SUPABASE_URL;
+  const anonKey = envValue('VITE_HOMELIFE_SUPABASE_ANON_KEY') || BUILT_IN_SUPABASE_ANON_KEY;
+  const passphrase = envValue('VITE_HOMELIFE_CLOUD_PASSPHRASE');
   return {
-    enabled: envValue('VITE_HOMELIFE_CLOUD_ENABLED') === 'true',
+    enabled: envValue('VITE_HOMELIFE_CLOUD_ENABLED') !== 'false' && Boolean(supabaseUrl && anonKey),
     autoSync: envValue('VITE_HOMELIFE_CLOUD_AUTO_SYNC') !== 'false',
-    supabaseUrl: envValue('VITE_HOMELIFE_SUPABASE_URL'),
-    anonKey: envValue('VITE_HOMELIFE_SUPABASE_ANON_KEY'),
-    passphrase: envValue('VITE_HOMELIFE_CLOUD_PASSPHRASE'),
+    supabaseUrl,
+    anonKey,
+    passphrase,
     tableName: envValue('VITE_HOMELIFE_CLOUD_TABLE') || DEFAULT_TABLE
   };
 }
@@ -50,8 +55,8 @@ export function getCloudSyncConfig(): CloudSyncConfig {
     return {
       enabled: Boolean(parsed.enabled),
       autoSync: parsed.autoSync !== false,
-      supabaseUrl: String(parsed.supabaseUrl ?? defaults.supabaseUrl).trim(),
-      anonKey: String(parsed.anonKey ?? defaults.anonKey).trim(),
+      supabaseUrl: String(parsed.supabaseUrl || defaults.supabaseUrl).trim(),
+      anonKey: String(parsed.anonKey || defaults.anonKey).trim(),
       passphrase: String(parsed.passphrase ?? defaults.passphrase).trim(),
       tableName: String(parsed.tableName ?? defaults.tableName ?? DEFAULT_TABLE).trim() || DEFAULT_TABLE
     };
@@ -83,7 +88,7 @@ export function cloudSyncSummary(config = getCloudSyncConfig()): string {
 
 function requireConfig(config = getCloudSyncConfig()): Required<CloudSyncConfig> {
   if (!isCloudSyncReady(config)) {
-    throw new Error('Cloud sync is not configured. Add the Supabase URL, anon key, and family cloud password.');
+    throw new Error('Cloud sync is not configured. Add the family cloud password. The Supabase server URL and anon key are built in.');
   }
   return config as Required<CloudSyncConfig>;
 }

@@ -1,0 +1,8 @@
+HomeLife v2026.06.12.0015
+
+- Added the provided Supabase project URL and anon public key as built-in cloud backend defaults.
+- Cloud Setup no longer asks for Supabase URL or anon key.
+- Cloud Setup now asks only for the family cloud password/passphrase and auto-sync preference.
+- Default cloud status now starts as setup-needed rather than off, because the server connection is preconfigured.
+- Kept browser-side encryption before cloud save/pull.
+- Do not add a service-role key to this frontend app.

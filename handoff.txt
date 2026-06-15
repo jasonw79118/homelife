@@ -108,3 +108,7 @@ Added optional encrypted Supabase cloud backend sync so households can use the s
 
 --- v2026.06.12.0014 ---
 Fixed TypeScript Web Crypto BufferSource compatibility issue in cloud decrypt path. This resolves the local build error at src/services/cloud.ts line 149.
+
+
+--- v2026.06.12.0015 ---
+Embedded the provided Supabase project URL and anon public key as the built-in cloud backend connection. Cloud Setup no longer asks each household for Supabase URL or anon key; it only asks for the family cloud password/passphrase and auto-sync preference. Version badge updated to 2026.06.12.0015.
