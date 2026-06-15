@@ -1,0 +1,16 @@
+HomeLife v2026.06.12.0009
+
+Fixes the site staying on the "Loading HomeLife..." screen by making the build work with every GitHub Pages publishing source:
+
+1. Vite now builds with relative asset paths using base './'.
+2. npm run build now restores the Vite source index before building.
+3. After build, the production app is copied to:
+   - /dist for GitHub Actions Pages deployment
+   - /docs for branch /docs deployment
+   - repository root /index.html and /assets for branch /root deployment
+4. Root-level /assets is included in this ZIP so main / root Pages source can load the bundled JS.
+5. Version updated to 2026.06.12.0009.
+
+Recommended: GitHub Pages Source = GitHub Actions and keep only .github/workflows/deploy.yml.
+Fallback: GitHub Pages Source = Deploy from branch, main / docs.
+Root fallback: main / root now works too because the ZIP includes production root assets.

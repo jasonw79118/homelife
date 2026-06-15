@@ -1,11 +1,11 @@
 {
   "name": "homelife",
-  "version": "2026.06.12.0008",
+  "version": "2026.06.12.0009",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "build": "tsc && vite build",
+    "dev": "node scripts/prepare-build.mjs && vite --host 0.0.0.0",
+    "build": "node scripts/prepare-build.mjs && tsc && vite build && node scripts/postbuild.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {

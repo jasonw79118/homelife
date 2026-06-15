@@ -43,10 +43,11 @@ jobs:
       - name: Build HomeLife
         run: pnpm run build
 
-      - name: Add Pages fallbacks
+      - name: Verify production files
         run: |
-          cp dist/index.html dist/404.html
-          touch dist/.nojekyll
+          test -f dist/index.html
+          test -d dist/assets
+          grep -q './assets/' dist/index.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
