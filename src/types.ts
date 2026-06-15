@@ -4,6 +4,7 @@ export interface User {
   id: string;
   name: string;
   role: Role;
+  pin?: string;
 }
 
 export interface Account {
@@ -171,6 +172,9 @@ export interface MealPlanItem {
 }
 
 export interface AppData {
+  householdId?: string;
+  householdName?: string;
+  inviteCode?: string;
   users: User[];
   currentUserId: string;
   accounts: Account[];

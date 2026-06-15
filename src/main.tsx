@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { DEFAULT_DATA, loadData, mergeDefaultPriceCatalog, resetData, saveData } from './services/storage';
+import { DEFAULT_DATA, SESSION_KEY, clearActiveHouseholdCode, createHousehold, getActiveHouseholdCode, listHouseholds, loadData, mergeDefaultPriceCatalog, normalizeHouseholdCode, resetData, saveData, setActiveHouseholdCode } from './services/storage';
 import type {
   AppData,
   MealIngredient,
@@ -105,7 +105,8 @@ function normalizeData(data: Partial<AppData> | null | undefined): AppData {
   const users = arrayOf<User>(safe.users, fallbackUsers).map((u, index) => ({
     id: clean(u?.id, `user-${index + 1}`),
     name: clean(u?.name, index === 0 ? 'Owner' : 'Household Member'),
-    role: safeRole(u?.role)
+    role: safeRole(u?.role),
+    pin: typeof u?.pin === 'string' ? u.pin : ''
   })).filter((u) => u.id && u.name);
   const normalizedUsers = users.length ? users : fallbackUsers;
 
@@ -152,6 +153,9 @@ function normalizeData(data: Partial<AppData> | null | undefined): AppData {
   })).filter((list) => list.id && list.name);
 
   return {
+    householdId: clean(safe.householdId, fallback.householdId ?? 'DEMO'),
+    householdName: clean(safe.householdName, fallback.householdName ?? 'Demo Household'),
+    inviteCode: clean(safe.inviteCode, safe.householdId ?? fallback.inviteCode ?? 'DEMO'),
     users: normalizedUsers,
     currentUserId: safe.currentUserId && normalizedUsers.some((u) => u.id === safe.currentUserId) ? safe.currentUserId : normalizedUsers[0].id,
     accounts: normalizedAccounts,
@@ -399,11 +403,57 @@ function buildIngredientFromPrompt(data: AppData): MealIngredient | null {
   return { ...refreshed, pantryCovered: finalPantryCovered, pantryItemId: finalPantryCovered ? refreshed.pantryItemId : undefined };
 }
 
+type LoginSession = { householdCode: string; userId: string };
+
+function readStoredSession(): LoginSession | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SESSION_KEY) ?? 'null') as Partial<LoginSession> | null;
+    const householdCode = normalizeHouseholdCode(parsed?.householdCode);
+    if (!householdCode || !parsed?.userId) return null;
+    return { householdCode, userId: parsed.userId };
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredSession(session: LoginSession): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  setActiveHouseholdCode(session.householdCode);
+}
+
+function clearStoredSession(): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.removeItem(SESSION_KEY);
+}
+
+function roleLabel(role: Role): string {
+  return role.replace('_', ' ');
+}
+
+const ROLE_OPTIONS: { value: Role; label: string; detail: string }[] = [
+  { value: 'owner', label: 'Owner', detail: 'Full access and user management' },
+  { value: 'financial_manager', label: 'Financial Manager', detail: 'Register, budget, debt, statement import, and family planning' },
+  { value: 'household_member', label: 'Household Member', detail: 'Recipes, meals, pantry, shopping, and prices' },
+  { value: 'viewer', label: 'Viewer', detail: 'Shared planning view; finance hidden' },
+  { value: 'child', label: 'Child', detail: 'Simple shared list and meal planning view; finance hidden' }
+];
+
+function isUserPinValid(user: User, attemptedPin: string): boolean {
+  return !user.pin || user.pin === attemptedPin.trim();
+}
+
+
 
 function App() {
+  const storedSession = readStoredSession();
+  const initialHouseholdCode = normalizeHouseholdCode(storedSession?.householdCode ?? getActiveHouseholdCode() ?? 'DEMO') || 'DEMO';
+  const [householdCode, setHouseholdCode] = useState(initialHouseholdCode);
+  const [session, setSession] = useState<LoginSession | null>(storedSession);
   const [data, setData] = useState<AppData>(() => {
     try {
-      return normalizeData(loadData());
+      return normalizeData(loadData(initialHouseholdCode));
     } catch (error) {
       console.error('HomeLife failed to load saved data. Starting with safe defaults.', error);
       return normalizeData(null);
@@ -411,13 +461,66 @@ function App() {
   });
   const [page, setPage] = useState('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const currentUser = data.users.find((u) => u.id === data.currentUserId) ?? data.users[0] ?? { id: 'user-owner', name: 'Owner', role: 'owner' as Role };
-  const canViewFinance = financeRoles.includes(currentUser.role);
+  const sessionUser = session ? data.users.find((u) => u.id === session.userId) : undefined;
+  const currentUser = sessionUser ?? data.users.find((u) => u.id === data.currentUserId) ?? data.users[0] ?? { id: 'user-owner', name: 'Owner', role: 'owner' as Role, pin: '' };
+  const canViewFinance = Boolean(sessionUser && financeRoles.includes(currentUser.role));
+
+  function persist(next: AppData, code = householdCode) {
+    const normalized = normalizeData({ ...next, householdId: code, inviteCode: code });
+    setData(normalized);
+    setHouseholdCode(normalizeHouseholdCode(code || normalized.householdId) || 'DEMO');
+    saveData(normalized, code);
+  }
 
   function update(next: AppData) {
-    const normalized = normalizeData(next);
+    persist(next, householdCode);
+  }
+
+  function loadHouseholdForLogin(codeInput: string) {
+    const code = normalizeHouseholdCode(codeInput) || 'DEMO';
+    const normalized = normalizeData(loadData(code));
+    const withHousehold = { ...normalized, householdId: code, inviteCode: code, householdName: normalized.householdName || `${code} Household` };
+    setHouseholdCode(code);
+    setData(withHousehold);
+    setActiveHouseholdCode(code);
+  }
+
+  function completeLogin(codeInput: string, userId: string, pin: string) {
+    const code = normalizeHouseholdCode(codeInput) || householdCode || 'DEMO';
+    const normalized = normalizeData(loadData(code));
+    const user = normalized.users.find((u) => u.id === userId) ?? normalized.users[0];
+    if (!user) { alert('No user exists for this household yet. Create a household first.'); return; }
+    if (!isUserPinValid(user, pin)) { alert('That PIN does not match this user.'); return; }
+    const next = { ...normalized, householdId: code, inviteCode: code, currentUserId: user.id };
+    setHouseholdCode(code);
+    setSession({ householdCode: code, userId: user.id });
+    writeStoredSession({ householdCode: code, userId: user.id });
+    persist(next, code);
+    setPage('dashboard');
+  }
+
+  function createNewHousehold(codeInput: string, householdName: string, ownerName: string, ownerPin: string) {
+    const code = normalizeHouseholdCode(codeInput || householdName);
+    if (!code) { alert('Enter a family code or household name.'); return; }
+    const created = createHousehold(code, householdName, ownerName, ownerPin);
+    const normalized = normalizeData(created);
+    setHouseholdCode(code);
     setData(normalized);
-    saveData(normalized);
+    setSession({ householdCode: code, userId: normalized.currentUserId });
+    writeStoredSession({ householdCode: code, userId: normalized.currentUserId });
+    setPage('dashboard');
+  }
+
+  function signOut() {
+    clearStoredSession();
+    setSession(null);
+    setMobileMenuOpen(false);
+    setPage('dashboard');
+  }
+
+  const activeSessionIsValid = Boolean(session && data.users.some((u) => u.id === session.userId));
+  if (!activeSessionIsValid) {
+    return <LoginScreen data={data} householdCode={householdCode} onLoadHousehold={loadHouseholdForLogin} onLogin={completeLogin} onCreateHousehold={createNewHousehold} />;
   }
 
   const nav = [
@@ -434,30 +537,89 @@ function App() {
     { id: 'settings', label: 'Settings', icon: Settings, show: true }
   ];
 
+  const visibleNav = nav.filter((n) => n.show);
+  const activeNav = visibleNav.some((n) => n.id === page) ? page : 'dashboard';
+
   return <div className="app-shell">
     <aside className={`sidebar ${mobileMenuOpen ? 'mobile-open' : 'mobile-closed'}`}>
       <div className="mobile-sidebar-head">
-        <div className="brand-card"><div className="brand-mark">HL</div><div><h1>HomeLife</h1><p>Budget, shop, cook, and plan your household in one place.</p></div></div>
+        <div className="brand-card"><div className="brand-mark">HL</div><div><h1>HomeLife</h1><p>{data.householdName ?? 'Household'} · {householdCode}</p></div></div>
         <button className="mobile-menu-toggle" type="button" aria-label={mobileMenuOpen ? 'Close HomeLife menu' : 'Open HomeLife menu'} aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen((open) => !open)}><MenuIcon size={20} /> Menu</button>
       </div>
-      <nav>{nav.filter((n) => n.show).map((n) => { const Icon = n.icon; return <button key={n.id} className={page === n.id ? 'active' : ''} onClick={() => { setPage(n.id); setMobileMenuOpen(false); }}><Icon size={18} /> {n.label}</button>; })}</nav>
-      {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this role.</div>}
-      <div className="version-badge">v2026.06.12.0011</div>
+      <nav>{visibleNav.map((n) => { const Icon = n.icon; return <button key={n.id} className={activeNav === n.id ? 'active' : ''} onClick={() => { setPage(n.id); setMobileMenuOpen(false); }}><Icon size={18} /> {n.label}</button>; })}</nav>
+      {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this login.</div>}
+      <div className="version-badge">v2026.06.12.0012</div>
     </aside>
     <main>
-      <header className="topbar"><div><h2>{nav.find((n) => n.id === page)?.label ?? 'Dashboard'}</h2><p>Signed in as <strong>{currentUser.name}</strong> · {currentUser.role.replace('_', ' ')}</p></div><select value={data.currentUserId} onChange={(e) => update({ ...data, currentUserId: e.target.value })}>{data.users.map((u) => <option key={u.id} value={u.id}>{u.name} — {u.role.replace('_', ' ')}</option>)}</select></header>
-      {page === 'dashboard' && <Dashboard data={data} canViewFinance={canViewFinance} />}
-      {page === 'register' && canViewFinance && <Register data={data} update={update} />}
-      {page === 'budget' && canViewFinance && <Budget data={data} update={update} />}
-      {page === 'debt' && canViewFinance && <Debt data={data} update={update} />}
-      {page === 'reconcile' && canViewFinance && <StatementImport data={data} update={update} />}
-      {page === 'prices' && <PriceCatalog data={data} update={update} />}
-      {page === 'pantry' && <Pantry data={data} update={update} />}
-      {page === 'recipes' && <RecipeBuilder data={data} update={update} />}
-      {page === 'meal-planner' && <MealPlanner data={data} update={update} />}
-      {page === 'shopping' && <Shopping data={data} update={update} />}
-      {page === 'settings' && <SettingsPage data={data} update={update} />}
+      <header className="topbar"><div><h2>{nav.find((n) => n.id === activeNav)?.label ?? 'Dashboard'}</h2><p><strong>{data.householdName ?? 'Household'}</strong> · signed in as <strong>{currentUser.name}</strong> · {roleLabel(currentUser.role)}</p></div><div className="settings-actions"><span className="pill neutral">Code: {householdCode}</span><button onClick={signOut}>Switch family/user</button></div></header>
+      {activeNav === 'dashboard' && <Dashboard data={data} canViewFinance={canViewFinance} />}
+      {activeNav === 'register' && canViewFinance && <Register data={data} update={update} />}
+      {activeNav === 'budget' && canViewFinance && <Budget data={data} update={update} />}
+      {activeNav === 'debt' && canViewFinance && <Debt data={data} update={update} />}
+      {activeNav === 'reconcile' && canViewFinance && <StatementImport data={data} update={update} />}
+      {activeNav === 'prices' && <PriceCatalog data={data} update={update} />}
+      {activeNav === 'pantry' && <Pantry data={data} update={update} />}
+      {activeNav === 'recipes' && <RecipeBuilder data={data} update={update} />}
+      {activeNav === 'meal-planner' && <MealPlanner data={data} update={update} />}
+      {activeNav === 'shopping' && <Shopping data={data} update={update} />}
+      {activeNav === 'settings' && <SettingsPage data={data} update={update} />}
     </main>
+  </div>;
+}
+
+function LoginScreen({ data, householdCode, onLoadHousehold, onLogin, onCreateHousehold }: { data: AppData; householdCode: string; onLoadHousehold: (code: string) => void; onLogin: (code: string, userId: string, pin: string) => void; onCreateHousehold: (code: string, householdName: string, ownerName: string, ownerPin: string) => void }) {
+  const [code, setCode] = useState(householdCode || data.inviteCode || 'DEMO');
+  const [selectedUserId, setSelectedUserId] = useState(data.currentUserId || data.users[0]?.id || 'user-owner');
+  const [pin, setPin] = useState('');
+  const [newCode, setNewCode] = useState('');
+  const [newHouseholdName, setNewHouseholdName] = useState('');
+  const [newOwnerName, setNewOwnerName] = useState('');
+  const [newOwnerPin, setNewOwnerPin] = useState('');
+  const households = listHouseholds();
+  const selectedUser = data.users.find((u) => u.id === selectedUserId) ?? data.users[0];
+
+  function loadCode(value: string) {
+    const normalized = normalizeHouseholdCode(value) || 'DEMO';
+    setCode(normalized);
+    onLoadHousehold(normalized);
+    setSelectedUserId(data.users[0]?.id ?? 'user-owner');
+    setPin('');
+  }
+
+  return <div className="login-shell">
+    <div className="login-card">
+      <div className="brand-card login-brand"><div className="brand-mark">HL</div><div><h1>HomeLife</h1><p>Family budget testing workspace</p></div></div>
+      <div className="grid two">
+        <div className="card">
+          <p className="label">Sign in</p>
+          <h3>Choose a family and user</h3>
+          <p className="muted">Each family code keeps a separate local test workspace. User roles control which views are visible.</p>
+          <label className="field-label">Family code</label>
+          <input className="full-input" value={code} onChange={(event) => setCode(event.target.value)} onBlur={() => loadCode(code)} placeholder="Example: WILLIAMS" />
+          <button onClick={() => loadCode(code)}>Load Family</button>
+          <label className="field-label">User login</label>
+          <select className="full-input" value={selectedUser?.id ?? ''} onChange={(event) => setSelectedUserId(event.target.value)}>{data.users.map((user) => <option key={user.id} value={user.id}>{user.name} — {roleLabel(user.role)}</option>)}</select>
+          <label className="field-label">PIN {selectedUser?.pin ? '' : '(blank for this user)'}</label>
+          <input className="full-input" value={pin} type="password" inputMode="numeric" onChange={(event) => setPin(event.target.value)} placeholder={selectedUser?.pin ? 'Enter PIN' : 'No PIN required'} />
+          <button className="primary" onClick={() => onLogin(code, selectedUser?.id ?? data.users[0]?.id ?? 'user-owner', pin)}>Sign in</button>
+          {households.length > 0 && <div className="known-households"><p className="label">Saved on this device</p>{households.map((household) => <button key={household.code} onClick={() => loadCode(household.code)}>{household.name} · {household.code}</button>)}</div>}
+        </div>
+        <div className="card">
+          <p className="label">New test family</p>
+          <h3>Create a household workspace</h3>
+          <p className="muted">Use one code per testing family. With GitHub Pages, this is local-browser storage until we connect a cloud database.</p>
+          <label className="field-label">Family code</label>
+          <input className="full-input" value={newCode} onChange={(event) => setNewCode(event.target.value)} placeholder="Example: SMITH-FAMILY" />
+          <label className="field-label">Household name</label>
+          <input className="full-input" value={newHouseholdName} onChange={(event) => setNewHouseholdName(event.target.value)} placeholder="Smith Household" />
+          <label className="field-label">Owner name</label>
+          <input className="full-input" value={newOwnerName} onChange={(event) => setNewOwnerName(event.target.value)} placeholder="Parent / tester name" />
+          <label className="field-label">Owner PIN optional</label>
+          <input className="full-input" value={newOwnerPin} type="password" inputMode="numeric" onChange={(event) => setNewOwnerPin(event.target.value)} placeholder="Optional local PIN" />
+          <button className="primary" onClick={() => onCreateHousehold(newCode, newHouseholdName, newOwnerName, newOwnerPin)}>Create and sign in</button>
+        </div>
+      </div>
+    </div>
   </div>;
 }
 
@@ -518,8 +680,14 @@ function Register({ data, update }: { data: AppData; update: (d: AppData) => voi
   </div>;
 }
 function Budget({ data, update }: { data: AppData; update: (d: AppData) => void }) {
+  function addCategory() {
+    const name = clean(prompt('Budget category name? Example: Groceries, Childcare, Utilities'));
+    if (!name) return;
+    const monthlyBudget = promptNumber('Monthly budget amount?', 0);
+    update({ ...data, budgetCategories: [...data.budgetCategories, { id: uid('cat'), name, monthlyBudget: Number.isFinite(monthlyBudget) ? monthlyBudget : 0 }] });
+  }
   function deleteCategory(id: string) { if (confirm('Delete this budget category?')) update({ ...data, budgetCategories: data.budgetCategories.filter((c) => c.id !== id) }); }
-  return <div className="card wide"><h3>Budget</h3><table><thead><tr><th>Category</th><th>Monthly Budget</th><th>Actual</th><th>Remaining</th><th>Delete</th></tr></thead><tbody>{data.budgetCategories.map(c => { const actual = Math.abs(data.transactions.filter(t => t.category === c.name && t.amount < 0).reduce((s, t) => s + t.amount, 0)); return <tr key={c.id}><td>{c.name}</td><td>{money(c.monthlyBudget)}</td><td>{money(actual)}</td><td>{money(c.monthlyBudget - actual)}</td><td><button className="icon-danger" onClick={() => deleteCategory(c.id)}><Trash2 size={14} /> Delete</button></td></tr>; })}</tbody></table></div>;
+  return <div className="card wide"><div className="split"><div><h3>Budget</h3><p className="muted">Build the monthly budget categories that transactions roll into. Every add action has a matching delete action.</p></div><div className="settings-actions"><button className="primary" onClick={addCategory}><PlusCircle size={14} /> Add Budget Category</button></div></div><table><thead><tr><th>Category</th><th>Monthly Budget</th><th>Actual</th><th>Remaining</th><th>Delete</th></tr></thead><tbody>{data.budgetCategories.map(c => { const actual = Math.abs(data.transactions.filter(t => t.category === c.name && t.amount < 0).reduce((s, t) => s + t.amount, 0)); return <tr key={c.id}><td>{c.name}</td><td>{money(c.monthlyBudget)}</td><td>{money(actual)}</td><td>{money(c.monthlyBudget - actual)}</td><td><button className="icon-danger" onClick={() => deleteCategory(c.id)}><Trash2 size={14} /> Delete</button></td></tr>; })}</tbody></table></div>;
 }
 function Debt({ data, update }: { data: AppData; update: (d: AppData) => void }) {
   function deleteDebt(id: string) { if (confirm('Delete this debt?')) update({ ...data, debts: data.debts.filter((d) => d.id !== id) }); }
@@ -818,11 +986,63 @@ function Shopping({ data, update }: { data: AppData; update: (d: AppData) => voi
 function downloadText(filename: string, text: string) { const blob = new Blob([text], { type: 'text/plain' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url); }
 function SettingsPage({ data, update }: { data: AppData; update: (d: AppData) => void }) {
   const backup = useMemo(() => JSON.stringify(data, null, 2), [data]);
-  function exportBackup() { downloadText('homelife-backup.json', backup); }
+  const currentUser = data.users.find((u) => u.id === data.currentUserId) ?? data.users[0];
+  const canManageUsers = currentUser?.role === 'owner';
+  const ownerCount = data.users.filter((u) => u.role === 'owner').length;
+
+  function exportBackup() { downloadText(`homelife-${data.inviteCode ?? 'household'}-backup.json`, backup); }
   function importBackup(event: React.ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file) return; file.text().then((text) => update(normalizeData(JSON.parse(text)))).catch(() => alert('Unable to import JSON backup.')); }
-  function reset() { if (!confirm('Reset local HomeLife demo data?')) return; resetData(); window.location.reload(); }
-  return <div className="card wide"><h3>Settings & Permissions</h3><p className="muted">Demo roles hide finance pages in the interface now. Recipe builder, meal planner, pantry, shopping, and prices remain visible/shared so the family can plan groceries without exposing the register.</p><table><thead><tr><th>User</th><th>Role</th><th>Register/Budget/Debt</th><th>Statement Import</th><th>Recipes/Meals/Pantry/Shopping/Prices</th></tr></thead><tbody>{data.users.map(u => <tr key={u.id}><td>{u.name}</td><td>{u.role.replace('_', ' ')}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>Visible/shared</td></tr>)}</tbody></table><div className="settings-actions"><button onClick={exportBackup}>Export JSON Backup</button><label className="button-like">Import JSON Backup<input type="file" accept="application/json" onChange={importBackup} hidden /></label><button className="danger" onClick={reset}>Reset Demo Data</button></div></div>;
+  function reset() { if (!confirm('Reset this local HomeLife household workspace?')) return; resetData(data.householdId); clearActiveHouseholdCode(); window.location.reload(); }
+  function renameHousehold() {
+    if (!canManageUsers) { alert('Only an owner login can rename the household.'); return; }
+    const householdName = clean(prompt('Household name?', data.householdName ?? 'HomeLife Household'), data.householdName ?? 'HomeLife Household');
+    update({ ...data, householdName });
+  }
+  function addUser() {
+    if (!canManageUsers) { alert('Only an owner login can add users.'); return; }
+    const name = clean(prompt('User name? Example: Mom, Dad, Teen, Grandparent'));
+    if (!name) return;
+    const roleInput = clean(prompt(`Role? ${ROLE_OPTIONS.map((r) => r.value).join(', ')}`, 'household_member'), 'household_member') as Role;
+    const role = ROLE_OPTIONS.some((option) => option.value === roleInput) ? roleInput : 'household_member';
+    const pin = clean(prompt('Optional PIN for this login. Leave blank for no PIN.', ''));
+    const user: User = { id: uid('user'), name, role, pin };
+    update({ ...data, users: [...data.users, user], shoppingLists: data.shoppingLists.map((list) => ({ ...list, sharedWith: [...new Set([...list.sharedWith, user.id])] })) });
+  }
+  function deleteUser(userId: string) {
+    if (!canManageUsers) { alert('Only an owner login can delete users.'); return; }
+    const user = data.users.find((u) => u.id === userId); if (!user) return;
+    if (user.id === data.currentUserId) { alert('You cannot delete the login you are currently using. Sign in as another owner first.'); return; }
+    if (user.role === 'owner' && ownerCount <= 1) { alert('Keep at least one owner login.'); return; }
+    if (!confirm(`Delete login for ${user.name}?`)) return;
+    const nextUsers = data.users.filter((u) => u.id !== userId);
+    update({ ...data, users: nextUsers, currentUserId: nextUsers[0]?.id ?? 'user-owner', shoppingLists: data.shoppingLists.map((list) => ({ ...list, sharedWith: list.sharedWith.filter((id) => id !== userId) })) });
+  }
+  function changeRole(userId: string) {
+    if (!canManageUsers) { alert('Only an owner login can change roles.'); return; }
+    const user = data.users.find((u) => u.id === userId); if (!user) return;
+    const roleInput = clean(prompt(`New role for ${user.name}? ${ROLE_OPTIONS.map((r) => r.value).join(', ')}`, user.role), user.role) as Role;
+    const role = ROLE_OPTIONS.some((option) => option.value === roleInput) ? roleInput : user.role;
+    if (user.role === 'owner' && role !== 'owner' && ownerCount <= 1) { alert('Keep at least one owner login.'); return; }
+    update({ ...data, users: data.users.map((u) => u.id === userId ? { ...u, role } : u) });
+  }
+  function changePin(userId: string) {
+    if (!canManageUsers) { alert('Only an owner login can change PINs.'); return; }
+    const user = data.users.find((u) => u.id === userId); if (!user) return;
+    const pin = clean(prompt(`New PIN for ${user.name}. Leave blank to remove the PIN.`, user.pin ?? ''));
+    update({ ...data, users: data.users.map((u) => u.id === userId ? { ...u, pin } : u) });
+  }
+
+  return <div className="card wide">
+    <div className="split"><div><h3>Settings, Logins & Test Families</h3><p className="muted">Household code <strong>{data.inviteCode ?? data.householdId}</strong> separates each family test workspace. On GitHub Pages this uses local browser storage; cloud sharing across devices will need a database connection later.</p></div><div className="settings-actions"><button onClick={renameHousehold}>Rename Household</button><button className="primary" onClick={addUser}><PlusCircle size={14} /> Add User Login</button></div></div>
+    <h4>User logins and view controls</h4>
+    <table><thead><tr><th>User</th><th>Role</th><th>PIN</th><th>Register/Budget/Debt</th><th>Statement Import</th><th>Recipes/Meals/Pantry/Shopping/Prices</th><th>Actions</th></tr></thead><tbody>{data.users.map(u => <tr key={u.id}><td>{u.name}</td><td>{roleLabel(u.role)}</td><td>{u.pin ? 'Set' : 'Blank'}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>{financeRoles.includes(u.role) ? 'Visible' : 'Hidden'}</td><td>Visible/shared</td><td><div className="row-actions"><button onClick={() => changeRole(u.id)}>Role</button><button onClick={() => changePin(u.id)}>PIN</button><button className="icon-danger" onClick={() => deleteUser(u.id)}><Trash2 size={14} /> Delete</button></div></td></tr>)}</tbody></table>
+    <h4>Role guide</h4>
+    <div className="grid two role-grid">{ROLE_OPTIONS.map((role) => <div className="permission-card" key={role.value}><strong>{role.label}</strong><span>{role.detail}</span></div>)}</div>
+    <h4>Backup and reset</h4>
+    <div className="settings-actions"><button onClick={exportBackup}>Export JSON Backup</button><label className="button-like">Import JSON Backup<input type="file" accept="application/json" onChange={importBackup} hidden /></label><button className="danger" onClick={reset}>Reset This Household</button></div>
+  </div>;
 }
+
 
 class HomeLifeErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
   constructor(props: { children: React.ReactNode }) {

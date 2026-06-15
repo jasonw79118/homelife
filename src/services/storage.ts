@@ -1,6 +1,9 @@
 import type { AppData, PriceCatalogItem } from '../types';
 
 export const STORAGE_KEY = 'homelife-data-v2';
+export const ACTIVE_HOUSEHOLD_KEY = 'homelife-active-household-v1';
+export const SESSION_KEY = 'homelife-active-session-v1';
+const HOUSEHOLD_PREFIX = 'homelife-household-v1:';
 const LEGACY_KEYS = ['homelife-data-v1', 'homelife-data', 'homelifeData'];
 const CATALOG_RESTORE_FLAG = 'homelife-catalog-restored-20260615-0010';
 
@@ -2169,9 +2172,12 @@ const DEFAULT_PRICE_CATALOG: PriceCatalogItem[] = [
 
 
 export const DEFAULT_DATA: AppData = {
+  householdId: 'DEMO',
+  householdName: 'Demo Household',
+  inviteCode: 'DEMO',
   users: [
-    { id: 'user-owner', name: 'Owner', role: 'owner' },
-    { id: 'user-household', name: 'Household Member', role: 'household_member' }
+    { id: 'user-owner', name: 'Owner', role: 'owner', pin: '' },
+    { id: 'user-household', name: 'Household Member', role: 'household_member', pin: '' }
   ],
   currentUserId: 'user-owner',
   accounts: [
@@ -2249,8 +2255,99 @@ function parseStoredData(key: string): Partial<AppData> | null {
   }
 }
 
-export function loadData(): Partial<AppData> | null {
+function cloneDefaultData(): AppData {
+  return JSON.parse(JSON.stringify(DEFAULT_DATA)) as AppData;
+}
+
+export function normalizeHouseholdCode(value: string | null | undefined): string {
+  return String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, '')
+    .slice(0, 32);
+}
+
+function householdStorageKey(code: string): string {
+  return `${HOUSEHOLD_PREFIX}${normalizeHouseholdCode(code)}`;
+}
+
+export function getActiveHouseholdCode(): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  return normalizeHouseholdCode(localStorage.getItem(ACTIVE_HOUSEHOLD_KEY)) || null;
+}
+
+export function setActiveHouseholdCode(code: string): void {
+  if (typeof localStorage === 'undefined') return;
+  const normalized = normalizeHouseholdCode(code);
+  if (normalized) localStorage.setItem(ACTIVE_HOUSEHOLD_KEY, normalized);
+}
+
+export function clearActiveHouseholdCode(): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.removeItem(ACTIVE_HOUSEHOLD_KEY);
+  localStorage.removeItem(SESSION_KEY);
+}
+
+export type HouseholdSummary = {
+  code: string;
+  name: string;
+  userCount: number;
+  updatedAt?: string;
+};
+
+export function listHouseholds(): HouseholdSummary[] {
+  if (typeof localStorage === 'undefined') return [];
+  const results: HouseholdSummary[] = [];
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (!key?.startsWith(HOUSEHOLD_PREFIX)) continue;
+    const code = key.slice(HOUSEHOLD_PREFIX.length);
+    const data = parseStoredData(key);
+    if (!data) continue;
+    results.push({
+      code,
+      name: String(data.householdName ?? code),
+      userCount: Array.isArray(data.users) ? data.users.length : 0,
+      updatedAt: typeof (data as Record<string, unknown>).updatedAt === 'string' ? String((data as Record<string, unknown>).updatedAt) : undefined
+    });
+  }
+  return results.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function createHousehold(codeInput: string, householdNameInput: string, ownerNameInput: string, ownerPinInput = ''): AppData {
+  const code = normalizeHouseholdCode(codeInput || householdNameInput || `FAMILY-${Date.now().toString().slice(-6)}`);
+  const data = cloneDefaultData();
+  data.householdId = code;
+  data.inviteCode = code;
+  data.householdName = householdNameInput.trim() || `${code} Household`;
+  data.users = [
+    { id: 'user-owner', name: ownerNameInput.trim() || 'Owner', role: 'owner', pin: ownerPinInput.trim() },
+    { id: 'user-household', name: 'Household Member', role: 'household_member', pin: '' }
+  ];
+  data.currentUserId = data.users[0].id;
+  saveData(data, code);
+  setActiveHouseholdCode(code);
+  return data;
+}
+
+export function loadData(householdCode?: string | null): Partial<AppData> | null {
   if (typeof localStorage === 'undefined') return DEFAULT_DATA;
+  const code = normalizeHouseholdCode(householdCode ?? getActiveHouseholdCode());
+  if (code) {
+    const household = parseStoredData(householdStorageKey(code));
+    if (household) {
+      const legacyPriceCatalog = household.priceCatalog ?? [];
+      const repaired = {
+        ...household,
+        householdId: household.householdId ?? code,
+        inviteCode: household.inviteCode ?? code,
+        householdName: household.householdName ?? `${code} Household`,
+        priceCatalog: mergeDefaultPriceCatalog(legacyPriceCatalog)
+      };
+      return repaired;
+    }
+  }
+
   const keys = [STORAGE_KEY, ...LEGACY_KEYS];
   const parsed = keys.map(parseStoredData).filter((item): item is Partial<AppData> => Boolean(item));
   if (!parsed.length) return DEFAULT_DATA;
@@ -2261,6 +2358,9 @@ export function loadData(): Partial<AppData> | null {
   if (shouldRestoreCatalog) {
     const repaired = {
       ...primary,
+      householdId: primary.householdId ?? 'DEMO',
+      householdName: primary.householdName ?? 'Demo Household',
+      inviteCode: primary.inviteCode ?? 'DEMO',
       priceCatalog: mergeDefaultPriceCatalog(legacyPriceCatalog)
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(repaired));
@@ -2274,12 +2374,20 @@ export function loadData(): Partial<AppData> | null {
   return primary;
 }
 
-export function saveData(data: AppData): void {
+export function saveData(data: AppData, householdCode?: string | null): void {
   if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  const code = normalizeHouseholdCode(householdCode ?? data.householdId ?? getActiveHouseholdCode());
+  const payload = { ...data, householdId: code || data.householdId, inviteCode: code || data.inviteCode, updatedAt: new Date().toISOString() };
+  if (code) {
+    localStorage.setItem(householdStorageKey(code), JSON.stringify(payload));
+    setActiveHouseholdCode(code);
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 }
 
-export function resetData(): void {
+export function resetData(householdCode?: string | null): void {
   if (typeof localStorage === 'undefined') return;
+  const code = normalizeHouseholdCode(householdCode ?? getActiveHouseholdCode());
+  if (code) localStorage.removeItem(householdStorageKey(code));
   [STORAGE_KEY, ...LEGACY_KEYS, CATALOG_RESTORE_FLAG].forEach((key) => localStorage.removeItem(key));
 }

@@ -93,3 +93,11 @@ Patch 2026.06.12.0011
 - On tablet/phone widths the menu collapses to a sticky top bar so page content is immediately visible.
 - Selecting a menu item automatically closes the mobile menu.
 - Desktop sidebar behavior remains unchanged.
+
+v2026.06.12.0012
+- Added Budget Add Category action.
+- Added login screen with family code workspace selection.
+- Added multi-family local testing workspaces stored by household code.
+- Added user management and role-based view controls in Settings.
+- Added local optional PIN support per user.
+- Note: GitHub Pages cannot persist shared cloud accounts by itself; each family/device stores locally unless a database layer is added.

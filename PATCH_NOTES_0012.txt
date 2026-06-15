@@ -1,0 +1,13 @@
+HomeLife v2026.06.12.0012
+
+Changes:
+- Added Add Budget Category button to the Budget screen.
+- Added household/family login screen.
+- Added separate family workspace codes so multiple families can test their own local budget data.
+- Added user logins with optional local PINs.
+- Added role-based view controls for Owner, Financial Manager, Household Member, Viewer, and Child.
+- Added Settings user management: add user, delete user, change role, change PIN, rename household.
+- Kept mobile hamburger menu, Recipe Builder, Meal Planner, Pantry, Register add/delete, and Price Catalog restoration.
+
+Important limitation:
+- This GitHub Pages build stores each family workspace in that browser's local storage. It is enough for multi-family testing on separate devices, but true cross-device shared family accounts will require adding a cloud database/auth layer later.
