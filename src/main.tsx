@@ -77,11 +77,54 @@ function accountBalance(data: AppData, accountId: string) {
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 function today() { return new Date().toISOString().slice(0, 10); }
 function clean(value: string | null | undefined, fallback = '') { return String(value ?? fallback).trim(); }
+function parseFlexibleNumberText(value: string | null | undefined): number | undefined {
+  const unicodeFractions: Record<string, string> = {
+    '¼': ' 1/4', '½': ' 1/2', '¾': ' 3/4', '⅓': ' 1/3', '⅔': ' 2/3', '⅛': ' 1/8', '⅜': ' 3/8', '⅝': ' 5/8', '⅞': ' 7/8'
+  };
+  const raw = String(value ?? '')
+    .replace(/[¼½¾⅓⅔⅛⅜⅝⅞]/g, (match) => unicodeFractions[match] ?? match)
+    .replace(/[$,]/g, '')
+    .trim();
+  if (!raw) return undefined;
+  const mixed = raw.match(/^(-)?(\d+)\s+(\d+)\/(\d+)$/);
+  if (mixed) {
+    const whole = Number(mixed[2]);
+    const numerator = Number(mixed[3]);
+    const denominator = Number(mixed[4]);
+    if (denominator) return (mixed[1] ? -1 : 1) * (whole + numerator / denominator);
+  }
+  const fraction = raw.match(/^(-)?(\d+)\/(\d+)$/);
+  if (fraction) {
+    const numerator = Number(fraction[2]);
+    const denominator = Number(fraction[3]);
+    if (denominator) return (fraction[1] ? -1 : 1) * numerator / denominator;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
 function parseNumber(value: string | null | undefined, fallback = 0) {
-  const parsed = Number(String(value ?? '').replace(/[$,]/g, '').trim());
-  return Number.isFinite(parsed) ? parsed : fallback;
+  const parsed = parseFlexibleNumberText(value);
+  return parsed === undefined ? fallback : parsed;
 }
 function promptNumber(label: string, fallback = 0) { return parseNumber(prompt(label, String(fallback)), fallback); }
+function formatQuantity(value: number | string | undefined, fallback = '1') {
+  const parsed = typeof value === 'number' ? value : parseFlexibleNumberText(String(value ?? ''));
+  if (parsed === undefined || !Number.isFinite(parsed)) return fallback;
+  if (Number.isInteger(parsed)) return String(parsed);
+  const sign = parsed < 0 ? '-' : '';
+  const absolute = Math.abs(parsed);
+  const whole = Math.floor(absolute);
+  const remainder = absolute - whole;
+  const denominators = [2, 3, 4, 8, 16];
+  for (const denominator of denominators) {
+    const numerator = Math.round(remainder * denominator);
+    if (numerator > 0 && Math.abs(remainder - numerator / denominator) < 0.001) {
+      const fraction = `${numerator}/${denominator}`;
+      return `${sign}${whole ? `${whole} ` : ''}${fraction}`;
+    }
+  }
+  return `${sign}${absolute.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')}`;
+}
 
 function promptIngredientCategory(current?: string): string | undefined {
   const category = clean(prompt(`Ingredient category? Leave blank if you want to decide later.
@@ -100,8 +143,8 @@ function arrayOf<T>(value: unknown, fallback: T[]): T[] {
 }
 
 function safeNumber(value: unknown, fallback = 0): number {
-  const parsed = typeof value === 'number' ? value : Number(String(value ?? '').replace(/[$,]/g, '').trim());
-  return Number.isFinite(parsed) ? parsed : fallback;
+  const parsed = typeof value === 'number' ? value : parseFlexibleNumberText(String(value ?? ''));
+  return parsed !== undefined && Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function safeRole(value: unknown): Role {
@@ -411,7 +454,7 @@ function ingredientToShoppingItem(meal: MealPlanItem, ingredient: MealIngredient
     checked: false,
     store: ingredient.store,
     category: ingredient.category,
-    notes: `${meal.name} · ${ingredient.quantity} ${ingredient.unit}${ingredient.notes ? ` · ${ingredient.notes}` : ''}`,
+    notes: `${meal.name} · ${formatQuantity(ingredient.quantity)} ${ingredient.unit}${ingredient.notes ? ` · ${ingredient.notes}` : ''}`,
     source: 'meal_plan',
     sourceMealId: meal.id,
     sourceIngredientId: ingredient.id
@@ -675,15 +718,21 @@ function addMissingIngredientsToList(data: AppData, meal: MealPlanItem, listName
 function buildIngredientFromPrompt(data: AppData, preferredStore = DEFAULT_RECIPE_STORE): MealIngredient | null {
   const requestedName = clean(prompt('Ingredient name? Example: Chicken breast'));
   if (!requestedName) return null;
-  const starter = buildIngredientFromParts(data, requestedName, 1, 'item', undefined, preferredStore);
-  const quantity = promptNumber('Quantity needed for this meal or recipe?', starter.quantity);
+  const selectedStore = promptStoreChoice(data, preferredStore, `Store for ${requestedName}?`);
+  const starter = buildIngredientFromParts(data, requestedName, 1, 'item', undefined, selectedStore);
+  const quantity = promptNumber('Quantity needed for this meal or recipe? Fractions like 1/4 or 1 1/2 are accepted.', starter.quantity);
   const unit = clean(prompt('Unit? Example: lb, cup, can, package, tsp', starter.unit), starter.unit);
-  const estimatedPrice = promptNumber('Estimated total cost for this meal amount? Use 0 if it is fully accounted for.', starter.estimatedPrice);
+  const matchedCatalog = findCatalogMatch(requestedName, data.priceCatalog, selectedStore);
+  const suggestedPrice = estimateIngredientCostFromCatalog(matchedCatalog, quantity, unit) || starter.estimatedPrice;
+  const estimatedPrice = promptNumber(`${matchedCatalog ? 'Confirm or edit the catalog price HomeLife found for this store.' : 'No price catalog match was found for this store. Enter or keep the estimated total price for this ingredient.'}
+
+${catalogPriceLine(matchedCatalog, quantity, unit)}
+Ingredient: ${formatQuantity(quantity)} ${unit} ${requestedName}`, suggestedPrice);
   const category = promptIngredientCategory(starter.category);
-  const refreshed = buildIngredientFromParts(data, requestedName, quantity, unit, estimatedPrice, preferredStore);
+  const refreshed = buildIngredientFromParts(data, requestedName, quantity, unit, estimatedPrice, selectedStore);
   const pantryNote = refreshed.pantryCovered ? 'already covered by pantry' : 'needs grocery list if used in a meal';
   const finalPantryCovered = refreshed.pantryCovered || confirm(`${refreshed.name} is currently marked as ${pantryNote}. Mark it as pantry-covered anyway?`);
-  return { ...refreshed, category, pantryCovered: finalPantryCovered, pantryItemId: finalPantryCovered ? refreshed.pantryItemId : undefined };
+  return { ...refreshed, category, store: refreshed.store ?? selectedStore, pantryCovered: finalPantryCovered, pantryItemId: finalPantryCovered ? refreshed.pantryItemId : undefined };
 }
 
 type LoginSession = { householdCode: string; userId: string };
@@ -1012,7 +1061,7 @@ function App() {
       </div>
       <nav>{visibleNav.map((n) => { const Icon = n.icon; return <button key={n.id} className={activeNav === n.id ? 'active' : ''} onClick={() => { setPage(n.id); setMobileMenuOpen(false); }}><Icon size={18} /> {n.label}</button>; })}</nav>
       {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this login.</div>}
-      <div className="version-badge">v2026.06.12.0023</div>
+      <div className="version-badge">v2026.06.12.0024</div>
     </aside>
     <main>
       <header className="topbar"><div><h2>{nav.find((n) => n.id === activeNav)?.label ?? 'Dashboard'}</h2><p><strong>{data.householdName ?? 'Household'}</strong> · signed in as <strong>{currentUser.name}</strong> · {roleLabel(currentUser.role)}</p></div><div className="settings-actions"><span className="pill neutral">Code: {householdCode}</span><span className="pill neutral">{cloudStatus}</span><button onClick={signOut}>Switch family/user</button></div></header>
@@ -1168,6 +1217,28 @@ function PriceCatalog({ data, update }: { data: AppData; update: (d: AppData) =>
     const item: PriceCatalogItem = { id: uid('price'), store, storeZip: clean(prompt('ZIP or store area?', '79015')) || undefined, name, brand: clean(prompt('Brand?', '')) || undefined, size: clean(prompt('Size?', '')) || undefined, category: clean(prompt(`Category? ${PANTRY_CATEGORIES.join(', ')}`, 'Other')) || undefined, price: Number.isFinite(price) ? price : 0, lastChecked: today(), notes: 'Manual entry' };
     update({ ...data, priceCatalog: [...data.priceCatalog, item] });
   }
+  function editPrice(id: string) {
+    const existing = data.priceCatalog.find((item) => item.id === id);
+    if (!existing) return;
+    const name = clean(prompt('Product name?', existing.name), existing.name);
+    if (!name) return;
+    const store = clean(prompt('Store?', existing.store), existing.store || 'Walmart');
+    const price = Math.max(0, promptNumber('Price?', existing.price));
+    const updated: PriceCatalogItem = {
+      ...existing,
+      name,
+      store,
+      storeName: clean(prompt('Store name? Optional', existing.storeName ?? ''), existing.storeName ?? '') || undefined,
+      storeZip: clean(prompt('ZIP or store area?', existing.storeZip ?? existing.zipCode ?? '79015'), existing.storeZip ?? existing.zipCode ?? '79015') || undefined,
+      brand: clean(prompt('Brand? Optional', existing.brand ?? ''), existing.brand ?? '') || undefined,
+      size: clean(prompt('Size? Example: 16 oz, 1 lb, 12 pack', existing.size ?? ''), existing.size ?? '') || undefined,
+      category: clean(prompt(`Category? ${PANTRY_CATEGORIES.join(', ')}`, existing.category ?? 'Other'), existing.category ?? 'Other') || undefined,
+      price,
+      lastChecked: today(),
+      notes: clean(prompt('Notes? Optional', existing.notes ?? ''), existing.notes ?? '') || undefined
+    };
+    update({ ...data, priceCatalog: data.priceCatalog.map((item) => item.id === id ? updated : item) });
+  }
   function removePrice(id: string) { if (confirm('Remove this price record?')) update({ ...data, priceCatalog: data.priceCatalog.filter(p => p.id !== id) }); }
   function restoreStarterCatalog() {
     const merged = mergeDefaultPriceCatalog(data.priceCatalog);
@@ -1178,7 +1249,7 @@ function PriceCatalog({ data, update }: { data: AppData; update: (d: AppData) =>
     const rows = [['store','storeName','zip','name','brand','size','category','price','lastChecked','notes'], ...data.priceCatalog.map(p => [p.store, p.storeName ?? '', p.storeZip ?? '', p.name, p.brand ?? '', p.size ?? '', p.category ?? '', String(p.price), p.lastChecked, p.notes ?? ''])];
     downloadText('homelife-price-catalog.csv', rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n'));
   }
-  return <div className="card wide"><div className="split"><div><h3>Local Price Catalog</h3><p className="muted">Use this for grocery, pantry, and meal projections. The starter catalog is now Walmart-first. Add United, Sam's, Target, or another store manually only when you want that store available.</p></div><div className="settings-actions"><button onClick={addPrice}>Add Price</button><button onClick={restoreStarterCatalog}>Restore Walmart Starter Catalog</button><button onClick={exportCsv}>Export CSV</button></div></div><input className="full-input" placeholder="Search Walmart milk, tortillas, meat, spices, or custom store records..." value={query} onChange={e => setQuery(e.target.value)} /><table><thead><tr><th>Store</th><th>Item</th><th>Brand/Size</th><th>Category</th><th>Price</th><th>Checked</th><th>Delete</th></tr></thead><tbody>{filtered.map(p => <tr key={p.id}><td>{p.store}<br /><small>{p.storeName ?? p.storeZip}</small></td><td>{p.name}</td><td>{p.brand ?? ''} {p.size ? `· ${p.size}` : ''}</td><td>{p.category}</td><td>{money(p.price)}</td><td>{p.lastChecked}</td><td><button className="icon-danger" onClick={() => removePrice(p.id)}><Trash2 size={14} /> Delete</button></td></tr>)}</tbody></table></div>;
+  return <div className="card wide"><div className="split"><div><h3>Local Price Catalog</h3><p className="muted">Use this for grocery, pantry, and meal projections. The starter catalog is now Walmart-first. Add United, Sam's, Target, or another store manually only when you want that store available.</p></div><div className="settings-actions"><button onClick={addPrice}>Add Price</button><button onClick={restoreStarterCatalog}>Restore Walmart Starter Catalog</button><button onClick={exportCsv}>Export CSV</button></div></div><input className="full-input" placeholder="Search Walmart milk, tortillas, meat, spices, or custom store records..." value={query} onChange={e => setQuery(e.target.value)} /><table><thead><tr><th>Store</th><th>Item</th><th>Brand/Size</th><th>Category</th><th>Price</th><th>Checked</th><th>Actions</th></tr></thead><tbody>{filtered.map(p => <tr key={p.id}><td>{p.store}<br /><small>{p.storeName ?? p.storeZip}</small></td><td>{p.name}</td><td>{p.brand ?? ''} {p.size ? `· ${p.size}` : ''}</td><td>{p.category}</td><td>{money(p.price)}</td><td>{p.lastChecked}</td><td><div className="row-actions"><button onClick={() => editPrice(p.id)}>Edit</button><button className="icon-danger" onClick={() => removePrice(p.id)}><Trash2 size={14} /> Delete</button></div></td></tr>)}</tbody></table></div>;
 }
 
 function Pantry({ data, update }: { data: AppData; update: (d: AppData) => void }) {
@@ -1291,6 +1362,16 @@ function savedRecipeStore(data: AppData): string {
   return stores.some((store) => store.toLowerCase() === saved.toLowerCase()) ? saved : DEFAULT_RECIPE_STORE;
 }
 
+function promptStoreChoice(data: AppData, currentStore = DEFAULT_RECIPE_STORE, label = 'Store for price lookup?'): string {
+  const stores = catalogStores(data);
+  const typed = clean(prompt(`${label}
+
+Available stores: ${stores.join(', ')}
+
+You can also type a new store name.`, currentStore || DEFAULT_RECIPE_STORE), currentStore || DEFAULT_RECIPE_STORE);
+  return typed || DEFAULT_RECIPE_STORE;
+}
+
 function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) => void }) {
   const [query, setQuery] = useState('');
   const [photoStatus, setPhotoStatus] = useState('');
@@ -1348,10 +1429,11 @@ function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) =
     if (!recipe || !ingredient) return;
     const name = clean(prompt('Ingredient name?', ingredient.name), ingredient.name);
     if (!name) return;
-    const quantity = Math.max(0, promptNumber(`Quantity needed for ${name}?`, ingredient.quantity));
+    const quantity = Math.max(0, promptNumber(`Quantity needed for ${name}? Fractions like 1/4 or 1 1/2 are accepted.`, ingredient.quantity));
     const unit = clean(prompt(`Unit for ${name}?`, ingredient.unit), ingredient.unit);
+    const selectedStore = promptStoreChoice(data, ingredient.store ?? preferredStore, `Store for ${name}?`);
     const category = promptIngredientCategory(ingredient.category);
-    const catalog = findCatalogMatch(name, data.priceCatalog, preferredStore);
+    const catalog = findCatalogMatch(name, data.priceCatalog, selectedStore);
     const catalogEstimate = estimateIngredientCostFromCatalog(catalog, quantity, unit);
     const pantry = findPantryMatch(name, data.pantryItems);
     const pantryCoveredBySystem = pantryCoversIngredient(name, quantity, unit, data.pantryItems);
@@ -1361,14 +1443,14 @@ function RecipeBuilder({ data, update }: { data: AppData; update: (d: AppData) =
 ${catalogPriceLine(catalog, quantity, unit)}
 Pantry check: ${pantryCoveredBySystem && pantry ? `${pantry.quantity} ${pantry.unit} ${pantry.name} on hand` : 'not fully covered'}
 
-This is the total recipe cost for ${quantity} ${unit} ${name}.`, suggestedPrice));
+This is the total recipe cost for ${formatQuantity(quantity)} ${unit} ${name}.`, suggestedPrice));
     let pantryCovered = pantryCoveredBySystem;
     if (pantryCoveredBySystem) {
       pantryCovered = confirm(`HomeLife found this in the pantry. Keep ${name} marked as pantry-covered? OK = pantry-covered, Cancel = needs grocery list.`);
     } else if (confirm(`HomeLife does not see enough ${name} in the pantry. Mark it as pantry-covered anyway?`)) {
       pantryCovered = true;
     }
-    const rebuilt = buildIngredientFromParts(data, name, quantity || 1, unit, estimatedPrice, preferredStore);
+    const rebuilt = buildIngredientFromParts(data, name, quantity || 1, unit, estimatedPrice, selectedStore);
     const updatedIngredient: MealIngredient = {
       ...ingredient,
       ...rebuilt,
@@ -1381,7 +1463,7 @@ This is the total recipe cost for ${quantity} ${unit} ${name}.`, suggestedPrice)
       pantryCovered,
       pantryItemId: pantryCovered ? (pantry?.id ?? rebuilt.pantryItemId) : undefined,
       priceCatalogItemId: catalog?.id ?? rebuilt.priceCatalogItemId,
-      store: catalog?.store ?? rebuilt.store,
+      store: catalog?.store ?? rebuilt.store ?? selectedStore,
       notes: clean(prompt('Ingredient notes? Optional', ingredient.notes ?? rebuilt.notes ?? ''), ingredient.notes ?? rebuilt.notes ?? '') || undefined
     };
     update({ ...data, recipes: data.recipes.map((item) => item.id === recipeId ? { ...item, ingredients: item.ingredients.map((candidate) => candidate.id === ingredientId ? updatedIngredient : candidate), updatedAt: new Date().toISOString() } : item) });
@@ -1414,7 +1496,7 @@ This is the total recipe cost for ${quantity} ${unit} ${name}.`, suggestedPrice)
       const pantryMatch = findPantryMatch(candidate.name, data.pantryItems);
       const nameInput = prompt(`Keep or correct this detected ingredient?
 
-Detected: ${candidate.quantity} ${candidate.unit} ${candidate.name}
+Detected: ${formatQuantity(candidate.quantity)} ${candidate.unit} ${candidate.name}
 ${pantryMatch ? `Pantry match: ${pantryMatch.quantity} ${pantryMatch.unit} on hand` : 'Pantry match: none found'}
 ${catalogPriceLine(startingCatalog, candidate.quantity, candidate.unit)}
 
@@ -1424,12 +1506,13 @@ Press Cancel or leave blank to skip this line.`, startingCatalog?.name ?? candid
       if (!correctedName) continue;
 
       const starter = buildIngredientFromParts(data, correctedName, candidate.quantity, candidate.unit, undefined, preferredStore);
-      const quantity = promptNumber(`How much ${correctedName} is needed for this recipe?`, starter.quantity);
+      const quantity = promptNumber(`How much ${correctedName} is needed for this recipe? Fractions like 1/4 or 1 1/2 are accepted.`, starter.quantity);
       const unit = clean(prompt(`Unit for ${correctedName}? Example: lb, cup, can, package, tsp`, starter.unit), starter.unit);
+      const selectedStore = promptStoreChoice(data, candidate.store ?? preferredStore, `Store for ${correctedName}?`);
       const category = promptIngredientCategory(candidate.category);
-      const catalogMatch = findCatalogMatch(correctedName, data.priceCatalog, preferredStore);
-      const preliminary = buildIngredientFromParts(data, correctedName, quantity, unit, undefined, preferredStore);
-      const preliminaryCheck = refreshIngredientAgainstPantry(data, preliminary, preferredStore);
+      const catalogMatch = findCatalogMatch(correctedName, data.priceCatalog, selectedStore);
+      const preliminary = buildIngredientFromParts(data, correctedName, quantity, unit, undefined, selectedStore);
+      const preliminaryCheck = refreshIngredientAgainstPantry(data, preliminary, selectedStore);
       let confirmedCost = preliminary.estimatedPrice;
 
       if (!preliminaryCheck.pantryCovered) {
@@ -1438,20 +1521,20 @@ Press Cancel or leave blank to skip this line.`, startingCatalog?.name ?? candid
         confirmedCost = promptNumber(`${catalogMatch ? 'Confirm or edit the selected-store catalog price HomeLife found.' : 'HomeLife did not find a price catalog match. Enter an estimated price or leave 0.'}
 
 ${catalogPriceLine(catalogMatch, quantity, unit)}
-Ingredient: ${quantity} ${unit} ${correctedName}
+Ingredient: ${formatQuantity(quantity)} ${unit} ${correctedName}
 
 This should be the estimated total cost added to the grocery list if you need to buy it.`, defaultPrice);
       }
 
-      const finalIngredient = buildIngredientFromParts(data, correctedName, quantity, unit, confirmedCost, preferredStore);
-      const finalCheck = refreshIngredientAgainstPantry(data, finalIngredient, preferredStore);
+      const finalIngredient = buildIngredientFromParts(data, correctedName, quantity, unit, confirmedCost, selectedStore);
+      const finalCheck = refreshIngredientAgainstPantry(data, finalIngredient, selectedStore);
       reviewed.push({
         ...finalIngredient,
         category,
         pantryCovered: finalCheck.pantryCovered,
         pantryItemId: finalCheck.pantryCovered ? finalCheck.pantryItemId : undefined,
         priceCatalogItemId: finalIngredient.priceCatalogItemId ?? catalogMatch?.id,
-        store: finalIngredient.store ?? catalogMatch?.store,
+        store: finalIngredient.store ?? catalogMatch?.store ?? selectedStore,
         notes: finalCheck.pantryCovered
           ? 'Matched to pantry during photo review.'
           : catalogMatch
@@ -1650,8 +1733,8 @@ This should be the estimated total cost added to the grocery list if you need to
   }
 
   return <div className="recipe-page">
-    <div className="card wide"><div className="split"><div><h3>Recipe Builder</h3><p className="muted">Build reusable recipes manually, from smart pasted recipe text, or from photo-assisted capture. Choose the store HomeLife should use first for catalog prices. Photo capture checks the pantry, searches that store's price catalog first, and lets you confirm or edit the matched price before missing items go to the grocery list. Ingredient categories are left for you to choose instead of being guessed from price matches.</p></div><div className="settings-actions"><button className="primary" onClick={addRecipe}><PlusCircle size={16} /> Add Manual Recipe</button><button onClick={addRecipeFromSmartText}>Smart Text Recipe</button><label className="button-like"><Camera size={16} /> Add Recipe From Photo<input type="file" accept="image/*" capture="environment" onChange={addRecipeFromPhoto} hidden /></label></div></div><div className="form-grid"><label>Recipe price store<select value={preferredStore} onChange={(event) => changePreferredStore(event.target.value)}>{storeOptions.map((store) => <option key={store} value={store}>{store}</option>)}</select></label><p className="muted">Using {preferredStore} first for recipe pricing · {preferredStoreCatalogCount} catalog item(s). Add another store on the Price Catalog page and it will appear here.</p></div>{photoStatus && <div className="status-banner">{photoStatus}</div>}<input className="full-input" placeholder="Search recipes, categories, notes, or ingredients..." value={query} onChange={(event) => setQuery(event.target.value)} /><div className="totals"><span>Recipes: <strong>{data.recipes.length}</strong></span><span>Visible: <strong>{recipes.length}</strong></span></div></div>
-    <div className="grid two">{recipes.map((recipe) => <div className="card recipe-card" key={recipe.id}>{recipe.photoDataUrl && <img className="recipe-photo" src={recipe.photoDataUrl} alt={`${recipe.name} import`} />}<div className="split"><div><p className="label">{recipe.category ?? 'Recipe'} · {recipe.servings} serving(s) · {recipe.source}</p><h3>{recipe.name}</h3><p>{recipe.notes}</p></div><button className="icon-danger" onClick={() => deleteRecipe(recipe.id)}><Trash2 size={14} /> Delete Recipe</button></div><div className="meal-costs"><span>Recipe value: <strong>{money(recipeTotal(recipe))}</strong></span><span>Need to buy now: <strong>{money(recipeMissingTotal(recipe))}</strong></span><span>Ingredients: <strong>{recipe.ingredients.length}</strong></span></div><div className="settings-actions"><button onClick={() => addIngredient(recipe.id)}>Add Ingredient</button><label className="button-like"><Camera size={16} /> Add Ingredient Photo<input type="file" accept="image/*" capture="environment" onChange={(event) => addPhotoIngredient(recipe.id, event)} hidden /></label><button onClick={() => addSmartTextToRecipe(recipe.id)}>Add Smart Text</button><button onClick={() => refreshRecipe(recipe.id)}>Refresh Pantry Check</button><button onClick={() => editRecipeInstructions(recipe.id)}>Edit Instructions</button><button onClick={() => planRecipe(recipe)}>Plan as Meal</button><button onClick={() => addRecipeMissingToGrocery(recipe)}>Missing to Grocery List</button></div>{recipe.instructions && <p className="instructions"><strong>Instructions:</strong> {recipe.instructions}</p>}<ul className="ingredient-list">{recipe.ingredients.map((ingredient) => { const refreshed = refreshIngredientAgainstPantry(data, ingredient, preferredStore); return <li key={ingredient.id}><div><strong>{ingredient.name}</strong><small>{ingredient.quantity} {ingredient.unit} · {ingredient.category ?? 'Category not set'} · {refreshed.pantryCovered ? 'pantry covered' : 'buy'} · {money(ingredient.estimatedPrice)} {ingredient.store ? `· ${ingredient.store}` : ''}</small></div><div className="row-actions"><button onClick={() => editIngredient(recipe.id, ingredient.id)}>Edit</button><button className="icon-danger" onClick={() => deleteIngredient(recipe.id, ingredient.id)}><Trash2 size={14} /> Delete</button></div></li>; })}</ul></div>)}</div>
+    <div className="card wide"><div className="split"><div><h3>Recipe Builder</h3><p className="muted">Build reusable recipes manually, from smart pasted recipe text, or from photo-assisted capture. Choose the store HomeLife should use first for catalog prices. Photo capture checks the pantry, searches that store's price catalog first, and lets you confirm or edit the matched price before missing items go to the grocery list. Ingredient categories are left for you to choose instead of being guessed from price matches. Amounts accept fractions such as 1/4 cup, and every ingredient can be edited later, including store and price.</p></div><div className="settings-actions"><button className="primary" onClick={addRecipe}><PlusCircle size={16} /> Add Manual Recipe</button><button onClick={addRecipeFromSmartText}>Smart Text Recipe</button><label className="button-like"><Camera size={16} /> Add Recipe From Photo<input type="file" accept="image/*" capture="environment" onChange={addRecipeFromPhoto} hidden /></label></div></div><div className="form-grid"><label>Recipe price store<select value={preferredStore} onChange={(event) => changePreferredStore(event.target.value)}>{storeOptions.map((store) => <option key={store} value={store}>{store}</option>)}</select></label><p className="muted">Using {preferredStore} first for recipe pricing · {preferredStoreCatalogCount} catalog item(s). Add another store on the Price Catalog page and it will appear here.</p></div>{photoStatus && <div className="status-banner">{photoStatus}</div>}<input className="full-input" placeholder="Search recipes, categories, notes, or ingredients..." value={query} onChange={(event) => setQuery(event.target.value)} /><div className="totals"><span>Recipes: <strong>{data.recipes.length}</strong></span><span>Visible: <strong>{recipes.length}</strong></span></div></div>
+    <div className="grid two">{recipes.map((recipe) => <div className="card recipe-card" key={recipe.id}>{recipe.photoDataUrl && <img className="recipe-photo" src={recipe.photoDataUrl} alt={`${recipe.name} import`} />}<div className="split"><div><p className="label">{recipe.category ?? 'Recipe'} · {recipe.servings} serving(s) · {recipe.source}</p><h3>{recipe.name}</h3><p>{recipe.notes}</p></div><button className="icon-danger" onClick={() => deleteRecipe(recipe.id)}><Trash2 size={14} /> Delete Recipe</button></div><div className="meal-costs"><span>Recipe value: <strong>{money(recipeTotal(recipe))}</strong></span><span>Need to buy now: <strong>{money(recipeMissingTotal(recipe))}</strong></span><span>Ingredients: <strong>{recipe.ingredients.length}</strong></span></div><div className="settings-actions"><button onClick={() => addIngredient(recipe.id)}>Add Ingredient</button><label className="button-like"><Camera size={16} /> Add Ingredient Photo<input type="file" accept="image/*" capture="environment" onChange={(event) => addPhotoIngredient(recipe.id, event)} hidden /></label><button onClick={() => addSmartTextToRecipe(recipe.id)}>Add Smart Text</button><button onClick={() => refreshRecipe(recipe.id)}>Refresh Pantry Check</button><button onClick={() => editRecipeInstructions(recipe.id)}>Edit Instructions</button><button onClick={() => planRecipe(recipe)}>Plan as Meal</button><button onClick={() => addRecipeMissingToGrocery(recipe)}>Missing to Grocery List</button></div>{recipe.instructions && <p className="instructions"><strong>Instructions:</strong> {recipe.instructions}</p>}<ul className="ingredient-list">{recipe.ingredients.map((ingredient) => { const refreshed = refreshIngredientAgainstPantry(data, ingredient, preferredStore); return <li key={ingredient.id}><div><strong>{ingredient.name}</strong><small>{formatQuantity(ingredient.quantity)} {ingredient.unit} · {ingredient.category ?? 'Category not set'} · {refreshed.pantryCovered ? 'pantry covered' : 'buy'} · {money(ingredient.estimatedPrice)} {ingredient.store ? `· ${ingredient.store}` : ''}</small></div><div className="row-actions"><button onClick={() => editIngredient(recipe.id, ingredient.id)}>Edit</button><button className="icon-danger" onClick={() => deleteIngredient(recipe.id, ingredient.id)}><Trash2 size={14} /> Delete</button></div></li>; })}</ul></div>)}</div>
   </div>;
 }
 
@@ -1700,7 +1783,7 @@ function MealPlanner({ data, update }: { data: AppData; update: (d: AppData) => 
   }
   return <div className="meal-page">
     <div className="card wide"><div className="split"><div><h3>Meal Planner</h3><p className="muted">Plan meals manually or from Recipe Builder, refresh pantry coverage, and send only the missing ingredients to a grocery list. Each meal shows total value and new grocery cost.</p></div><div className="settings-actions"><button className="primary" onClick={addMeal}><CookingPot size={16} /> Add Meal</button><button onClick={planFromRecipe}><BookOpen size={16} /> Plan From Recipe</button></div></div><div className="totals"><span>Planned meals: <strong>{data.mealPlans.length}</strong></span><span>Total food value: <strong>{money(allMealTotalCost(data.mealPlans))}</strong></span><span>New grocery cost: <strong>{money(allMealGroceryCost(data.mealPlans))}</strong></span></div></div>
-    <div className="grid two">{meals.map((meal) => <div className="card meal-card" key={meal.id}><div className="split"><div><p className="label">{meal.date} · {meal.mealType} · {meal.servings} serving(s)</p><h3>{meal.name}</h3><p>{meal.notes}</p></div><button className="icon-danger" onClick={() => deleteMeal(meal.id)}><Trash2 size={14} /> Delete Meal</button></div><div className="meal-costs"><span>Total: <strong>{money(mealTotalCost(meal))}</strong></span><span>Pantry covered: <strong>{money(mealPantryCoveredCost(meal))}</strong></span><span>Need to buy: <strong>{money(mealGroceryCost(meal))}</strong></span></div><div className="settings-actions"><button onClick={() => addIngredient(meal.id)}>Add Ingredient</button><button onClick={() => addMealToGroceryList(meal)}>Add Missing to Grocery List</button></div><ul className="ingredient-list">{meal.ingredients.map((ingredient) => <li key={ingredient.id}><div><strong>{ingredient.name}</strong><small>{ingredient.quantity} {ingredient.unit} · {ingredient.category ?? 'Category not set'} · {ingredient.pantryCovered ? 'pantry covered' : 'buy'} · {money(ingredient.estimatedPrice)} {ingredient.store ? `· ${ingredient.store}` : ''}</small></div><button className="icon-danger" onClick={() => deleteIngredient(meal.id, ingredient.id)}><Trash2 size={14} /> Delete</button></li>)}</ul></div>)}</div>
+    <div className="grid two">{meals.map((meal) => <div className="card meal-card" key={meal.id}><div className="split"><div><p className="label">{meal.date} · {meal.mealType} · {meal.servings} serving(s)</p><h3>{meal.name}</h3><p>{meal.notes}</p></div><button className="icon-danger" onClick={() => deleteMeal(meal.id)}><Trash2 size={14} /> Delete Meal</button></div><div className="meal-costs"><span>Total: <strong>{money(mealTotalCost(meal))}</strong></span><span>Pantry covered: <strong>{money(mealPantryCoveredCost(meal))}</strong></span><span>Need to buy: <strong>{money(mealGroceryCost(meal))}</strong></span></div><div className="settings-actions"><button onClick={() => addIngredient(meal.id)}>Add Ingredient</button><button onClick={() => addMealToGroceryList(meal)}>Add Missing to Grocery List</button></div><ul className="ingredient-list">{meal.ingredients.map((ingredient) => <li key={ingredient.id}><div><strong>{ingredient.name}</strong><small>{formatQuantity(ingredient.quantity)} {ingredient.unit} · {ingredient.category ?? 'Category not set'} · {ingredient.pantryCovered ? 'pantry covered' : 'buy'} · {money(ingredient.estimatedPrice)} {ingredient.store ? `· ${ingredient.store}` : ''}</small></div><button className="icon-danger" onClick={() => deleteIngredient(meal.id, ingredient.id)}><Trash2 size={14} /> Delete</button></li>)}</ul></div>)}</div>
   </div>;
 }
 
@@ -1749,7 +1832,7 @@ function Shopping({ data, update }: { data: AppData; update: (d: AppData) => voi
   function deleteList(listId: string) { if (confirm('Delete this shopping list and its items?')) update({ ...data, shoppingLists: data.shoppingLists.filter((list) => list.id !== listId) }); }
   function addItem(listId: string) { const search = clean(prompt('Item name? This will try to use your price catalog.')); if (!search) return; const found = findCatalogMatch(search, data.priceCatalog); const price = found ? found.price : promptNumber('Estimated item price?', 0); const qty = promptNumber(found?.size?.includes('per lb') ? 'Quantity / pounds?' : 'Quantity?', 1); const item: ShoppingItem = { id: uid('item'), name: found?.name ?? search, quantity: Number.isFinite(qty) ? qty : 1, estimatedPrice: Number.isFinite(price) ? price : 0, checked: false, store: found?.store, category: found?.category, notes: found ? `${found.brand ?? ''} ${found.size ?? ''}`.trim() : undefined, source: found ? 'price_catalog' : 'manual' }; update({ ...data, shoppingLists: data.shoppingLists.map(l => l.id === listId ? { ...l, items: [...l.items, item] } : l) }); }
   function deleteItem(listId: string, itemId: string) { if (confirm('Delete this shopping item?')) update({ ...data, shoppingLists: data.shoppingLists.map((list) => list.id === listId ? { ...list, items: list.items.filter((item) => item.id !== itemId) } : list) }); }
-  return <div className="shopping-page"><div className="actions"><button className="primary" onClick={addList}>Add Shopping List</button></div><div className="grid two">{visibleLists.map(list => <div className="card" key={list.id}><div className="list-header"><div><p className="label">{list.type}</p><h3>{list.name}</h3></div><div className="settings-actions"><button onClick={() => addItem(list.id)}>Add Item</button><button className="icon-danger" onClick={() => deleteList(list.id)}><Trash2 size={14} /> Delete List</button></div></div><div className="totals"><span>Estimated: <strong>{money(listEstimatedTotal(list))}</strong></span><span>Actual/Projected: <strong>{money(listActualTotal(list))}</strong></span></div><ul className="shopping-list">{list.items.map(item => <li key={item.id} className={item.checked ? 'checked' : ''}><label><input type="checkbox" checked={item.checked} onChange={() => toggleItem(list.id, item.id)} /> <span>{item.name}</span></label><small>{item.quantity} × {money(item.estimatedPrice)} {item.store ? `· ${item.store}` : ''} {item.notes ? `· ${item.notes}` : ''}</small><button className="icon-danger" onClick={() => deleteItem(list.id, item.id)}><Trash2 size={14} /> Delete</button></li>)}</ul></div>)}</div></div>;
+  return <div className="shopping-page"><div className="actions"><button className="primary" onClick={addList}>Add Shopping List</button></div><div className="grid two">{visibleLists.map(list => <div className="card" key={list.id}><div className="list-header"><div><p className="label">{list.type}</p><h3>{list.name}</h3></div><div className="settings-actions"><button onClick={() => addItem(list.id)}>Add Item</button><button className="icon-danger" onClick={() => deleteList(list.id)}><Trash2 size={14} /> Delete List</button></div></div><div className="totals"><span>Estimated: <strong>{money(listEstimatedTotal(list))}</strong></span><span>Actual/Projected: <strong>{money(listActualTotal(list))}</strong></span></div><ul className="shopping-list">{list.items.map(item => <li key={item.id} className={item.checked ? 'checked' : ''}><label><input type="checkbox" checked={item.checked} onChange={() => toggleItem(list.id, item.id)} /> <span>{item.name}</span></label><small>{formatQuantity(item.quantity)} × {money(item.estimatedPrice)} {item.store ? `· ${item.store}` : ''} {item.notes ? `· ${item.notes}` : ''}</small><button className="icon-danger" onClick={() => deleteItem(list.id, item.id)}><Trash2 size={14} /> Delete</button></li>)}</ul></div>)}</div></div>;
 }
 
 function downloadText(filename: string, text: string) { const blob = new Blob([text], { type: 'text/plain' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url); }

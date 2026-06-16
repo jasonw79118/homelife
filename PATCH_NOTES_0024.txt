@@ -1,0 +1,12 @@
+HomeLife v2026.06.12.0024
+
+Changes:
+- Recipe ingredient quantities now accept fractions such as 1/4, 1 1/2, and common unicode fractions.
+- Recipe and meal ingredient displays show friendly fractional quantities where possible.
+- Recipe ingredient editing now allows the store to be changed after the ingredient is added.
+- Ingredient price lookup uses the selected ingredient store first and still allows the suggested catalog price to be confirmed or edited.
+- Local Price Catalog rows now have an Edit button for price, store, name, brand, size, category, zip/store area, and notes.
+- Version badge updated to v2026.06.12.0024.
+
+Deployment:
+- Root-level ZIP. Unzip directly into the HomeLife repo root, overwrite files, commit, and push.
