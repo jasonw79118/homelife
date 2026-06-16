@@ -30,6 +30,16 @@ export interface BudgetCategory {
   monthlyBudget: number;
 }
 
+export type IncomeFrequency = 'weekly' | 'biweekly' | 'bimonthly' | 'monthly';
+
+export interface IncomeSource {
+  id: string;
+  name: string;
+  amount: number;
+  frequency: IncomeFrequency;
+  notes?: string;
+}
+
 export interface Debt {
   id: string;
   name: string;
@@ -180,6 +190,7 @@ export interface AppData {
   accounts: Account[];
   transactions: Transaction[];
   budgetCategories: BudgetCategory[];
+  salarySources: IncomeSource[];
   debts: Debt[];
   shoppingLists: ShoppingList[];
   priceCatalog: PriceCatalogItem[];

@@ -5,6 +5,7 @@ import { DEFAULT_DATA, SESSION_KEY, clearActiveHouseholdCode, createHousehold, g
 import { clearCloudSyncConfig, cloudSyncSummary, getCloudSyncConfig, isCloudSyncReady, loadCloudHousehold, saveCloudHousehold, saveCloudSyncConfig, testCloudConnection } from './services/cloud';
 import type {
   AppData,
+  IncomeSource,
   MealIngredient,
   MealPlanItem,
   MealType,
@@ -68,6 +69,31 @@ const RECIPE_STORE_KEY = 'homelife-recipe-builder-store-v1';
 
 function money(value: number) {
   return (Number.isFinite(value) ? value : 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
+const INCOME_FREQUENCIES: IncomeSource['frequency'][] = ['weekly', 'biweekly', 'bimonthly', 'monthly'];
+function incomeFrequencyLabel(frequency: IncomeSource['frequency']) {
+  if (frequency === 'biweekly') return 'Bi-weekly';
+  if (frequency === 'bimonthly') return 'Bi-monthly';
+  return frequency.charAt(0).toUpperCase() + frequency.slice(1);
+}
+function normalizeIncomeFrequency(value: unknown): IncomeSource['frequency'] {
+  const cleaned = String(value ?? '').toLowerCase().replace(/[^a-z]/g, '');
+  if (cleaned === 'weekly') return 'weekly';
+  if (cleaned === 'biweekly' || cleaned === 'everyotherweek') return 'biweekly';
+  if (cleaned === 'bimonthly' || cleaned === 'semimonthly' || cleaned === 'twicemonthly') return 'bimonthly';
+  if (cleaned === 'monthly') return 'monthly';
+  return 'monthly';
+}
+function monthlyIncomeAmount(source: IncomeSource) {
+  const amount = Number.isFinite(source.amount) ? source.amount : 0;
+  if (source.frequency === 'weekly') return amount * 52 / 12;
+  if (source.frequency === 'biweekly') return amount * 26 / 12;
+  if (source.frequency === 'bimonthly') return amount * 2;
+  return amount;
+}
+function promptIncomeFrequency(current: IncomeSource['frequency'] = 'monthly') {
+  const answer = clean(prompt('Pay frequency? Choose weekly, bi-weekly, bi-monthly, or monthly.', incomeFrequencyLabel(current)));
+  return normalizeIncomeFrequency(answer || current);
 }
 function accountBalance(data: AppData, accountId: string) {
   const account = data.accounts.find((a) => a.id === accountId);
@@ -226,6 +252,13 @@ function normalizeData(data: Partial<AppData> | null | undefined): AppData {
       name: clean(c?.name, `Category ${index + 1}`),
       monthlyBudget: safeNumber(c?.monthlyBudget, 0)
     })),
+    salarySources: arrayOf<IncomeSource>(safe.salarySources, fallback.salarySources ?? []).map((source, index) => ({
+      id: clean(source?.id, `income-${index + 1}`),
+      name: clean(source?.name, `Income ${index + 1}`),
+      amount: safeNumber(source?.amount, 0),
+      frequency: normalizeIncomeFrequency(source?.frequency),
+      notes: source?.notes
+    })).filter((source) => source.id && source.name),
     debts: arrayOf(safe.debts, fallback.debts).map((d, index) => ({
       id: clean(d?.id, `debt-${index + 1}`),
       name: clean(d?.name, `Debt ${index + 1}`),
@@ -1061,7 +1094,7 @@ function App() {
       </div>
       <nav>{visibleNav.map((n) => { const Icon = n.icon; return <button key={n.id} className={activeNav === n.id ? 'active' : ''} onClick={() => { setPage(n.id); setMobileMenuOpen(false); }}><Icon size={18} /> {n.label}</button>; })}</nav>
       {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this login.</div>}
-      <div className="version-badge">v2026.06.12.0025</div>
+      <div className="version-badge">v2026.06.12.0026</div>
     </aside>
     <main>
       <header className="topbar"><div><h2>{nav.find((n) => n.id === activeNav)?.label ?? 'Dashboard'}</h2><p><strong>{data.householdName ?? 'Household'}</strong> · signed in as <strong>{currentUser.name}</strong> · {roleLabel(currentUser.role)}</p></div><div className="settings-actions"><span className="pill neutral">Code: {householdCode}</span><span className="pill neutral">{cloudStatus}</span><button onClick={signOut}>Switch family/user</button></div></header>
@@ -1140,6 +1173,8 @@ function Dashboard({ data, canViewFinance }: { data: AppData; canViewFinance: bo
   const accountTotal = data.accounts.reduce((sum, a) => sum + a.startingBalance + data.transactions.filter(t => t.accountId === a.id).reduce((s, t) => s + t.amount, 0), 0);
   const shoppingTotal = data.shoppingLists.reduce((sum, l) => sum + listEstimatedTotal(l), 0);
   const remainingItems = data.shoppingLists.reduce((sum, l) => sum + l.items.filter(i => !i.checked).length, 0);
+  const monthlyIncome = data.salarySources.reduce((sum, source) => sum + monthlyIncomeAmount(source), 0);
+  const monthlyBudget = data.budgetCategories.reduce((sum, category) => sum + category.monthlyBudget, 0);
   return <section className="grid two">
     {canViewFinance ? <Card title="Household Balance" value={money(accountTotal)} detail="Across starter accounts" /> : <Card title="Finance Hidden" value="Private" detail="Your role can use shared lists, meals, pantry, and prices only." />}
     <Card title="Meal Plan Grocery Need" value={money(allMealGroceryCost(data.mealPlans))} detail={`${data.mealPlans.length} planned meal(s); ${money(allMealTotalCost(data.mealPlans))} total food value`} />
@@ -1148,7 +1183,8 @@ function Dashboard({ data, canViewFinance }: { data: AppData; canViewFinance: bo
     <Card title="Shopping Estimate" value={money(shoppingTotal)} detail={`${remainingItems} item(s) still needed`} />
     <Card title="Price Catalog" value={`${data.priceCatalog.length}`} detail="Local manual price records; API hook ready later" />
     {canViewFinance && <Card title="Statement Review" value={`${data.statementImports.length}`} detail="Sanitized rows only; raw files stay local" />}
-    {canViewFinance && <Card title="Monthly Budget" value={money(data.budgetCategories.reduce((s, c) => s + c.monthlyBudget, 0))} detail="Starter budget categories" />}
+    {canViewFinance && <Card title="Monthly Income" value={money(monthlyIncome)} detail={`${data.salarySources.length} income source(s); ${money(monthlyIncome - monthlyBudget)} after planned budget`} />}
+    {canViewFinance && <Card title="Monthly Budget" value={money(monthlyBudget)} detail="Editable budget categories plus salary planning" />}
     {canViewFinance && <Card title="Debt Balance" value={money(data.debts.reduce((s, d) => s + d.balance, 0))} detail="Hidden from list-only users" />}
   </section>;
 }
@@ -1213,18 +1249,86 @@ function Register({ data, update }: { data: AppData; update: (d: AppData) => voi
   </div>;
 }
 function Budget({ data, update }: { data: AppData; update: (d: AppData) => void }) {
+  const monthlyIncome = data.salarySources.reduce((sum, source) => sum + monthlyIncomeAmount(source), 0);
+  const monthlyBudget = data.budgetCategories.reduce((sum, category) => sum + category.monthlyBudget, 0);
+  function addIncomeSource() {
+    const name = clean(prompt('Salary/income name? Example: Jason Paycheck, Ryanne Salary, Side Work'));
+    if (!name) return;
+    const amount = Math.max(0, promptNumber('Amount per paycheck or pay period?', 0));
+    const frequency = promptIncomeFrequency('biweekly');
+    const notes = clean(prompt('Notes? Optional', '')) || undefined;
+    const income: IncomeSource = { id: uid('income'), name, amount, frequency, notes };
+    update({ ...data, salarySources: [...data.salarySources, income] });
+  }
+  function editIncomeSource(id: string) {
+    const existing = data.salarySources.find((source) => source.id === id);
+    if (!existing) return;
+    const name = clean(prompt('Salary/income name?', existing.name), existing.name);
+    if (!name) return;
+    const amount = Math.max(0, promptNumber('Amount per paycheck or pay period?', existing.amount));
+    const frequency = promptIncomeFrequency(existing.frequency);
+    const notes = clean(prompt('Notes? Optional', existing.notes ?? ''), existing.notes ?? '') || undefined;
+    update({ ...data, salarySources: data.salarySources.map((source) => source.id === id ? { ...source, name, amount, frequency, notes } : source) });
+  }
+  function deleteIncomeSource(id: string) {
+    if (confirm('Delete this salary/income source?')) update({ ...data, salarySources: data.salarySources.filter((source) => source.id !== id) });
+  }
   function addCategory() {
     const name = clean(prompt('Budget category name? Example: Groceries, Childcare, Utilities'));
     if (!name) return;
     const monthlyBudget = promptNumber('Monthly budget amount?', 0);
     update({ ...data, budgetCategories: [...data.budgetCategories, { id: uid('cat'), name, monthlyBudget: Number.isFinite(monthlyBudget) ? monthlyBudget : 0 }] });
   }
+  function editCategory(id: string) {
+    const existing = data.budgetCategories.find((category) => category.id === id);
+    if (!existing) return;
+    const name = clean(prompt('Budget category name?', existing.name), existing.name);
+    if (!name) return;
+    const monthlyBudget = Math.max(0, promptNumber('Monthly budget amount?', existing.monthlyBudget));
+    const updateTransactions = existing.name !== name && confirm(`Update existing register transactions from "${existing.name}" to "${name}" so actual spending stays matched?`);
+    update({
+      ...data,
+      budgetCategories: data.budgetCategories.map((category) => category.id === id ? { ...category, name, monthlyBudget } : category),
+      transactions: updateTransactions ? data.transactions.map((transaction) => transaction.category === existing.name ? { ...transaction, category: name } : transaction) : data.transactions
+    });
+  }
   function deleteCategory(id: string) { if (confirm('Delete this budget category?')) update({ ...data, budgetCategories: data.budgetCategories.filter((c) => c.id !== id) }); }
-  return <div className="card wide"><div className="split"><div><h3>Budget</h3><p className="muted">Build the monthly budget categories that transactions roll into. Every add action has a matching delete action.</p></div><div className="settings-actions"><button className="primary" onClick={addCategory}><PlusCircle size={14} /> Add Budget Category</button></div></div><table><thead><tr><th>Category</th><th>Monthly Budget</th><th>Actual</th><th>Remaining</th><th>Delete</th></tr></thead><tbody>{data.budgetCategories.map(c => { const actual = Math.abs(data.transactions.filter(t => t.category === c.name && t.amount < 0).reduce((s, t) => s + t.amount, 0)); return <tr key={c.id}><td>{c.name}</td><td>{money(c.monthlyBudget)}</td><td>{money(actual)}</td><td>{money(c.monthlyBudget - actual)}</td><td><button className="icon-danger" onClick={() => deleteCategory(c.id)}><Trash2 size={14} /> Delete</button></td></tr>; })}</tbody></table></div>;
+  return <div className="card wide">
+    <div className="split"><div><h3>Budget</h3><p className="muted">Track household salary/income sources and editable monthly budget categories. Pay frequency can be weekly, bi-weekly, bi-monthly, or monthly.</p></div><div className="settings-actions"><button className="primary" onClick={addIncomeSource}><PlusCircle size={14} /> Add Salary/Income</button><button className="primary" onClick={addCategory}><PlusCircle size={14} /> Add Budget Category</button></div></div>
+    <div className="totals"><span>Monthly income: <strong>{money(monthlyIncome)}</strong></span><span>Monthly budget: <strong>{money(monthlyBudget)}</strong></span><span>Income after budget: <strong>{money(monthlyIncome - monthlyBudget)}</strong></span></div>
+    <h4>Salary / Income Sources</h4>
+    {data.salarySources.length === 0 ? <p className="empty-state">No salary or income sources yet. Use <strong>Add Salary/Income</strong> to add weekly, bi-weekly, bi-monthly, or monthly income.</p> : <table><thead><tr><th>Income Source</th><th>Amount</th><th>Frequency</th><th>Monthly Equivalent</th><th>Notes</th><th>Actions</th></tr></thead><tbody>{data.salarySources.map((source) => <tr key={source.id}><td>{source.name}</td><td>{money(source.amount)}</td><td>{incomeFrequencyLabel(source.frequency)}</td><td>{money(monthlyIncomeAmount(source))}</td><td>{source.notes ?? '—'}</td><td><div className="row-actions"><button onClick={() => editIncomeSource(source.id)}>Edit</button><button className="icon-danger" onClick={() => deleteIncomeSource(source.id)}><Trash2 size={14} /> Delete</button></div></td></tr>)}</tbody></table>}
+    <h4>Budget Categories</h4>
+    {data.budgetCategories.length === 0 ? <p className="empty-state">No budget categories yet. Use <strong>Add Budget Category</strong> to start building your monthly budget.</p> : <table><thead><tr><th>Category</th><th>Monthly Budget</th><th>Actual</th><th>Remaining</th><th>Actions</th></tr></thead><tbody>{data.budgetCategories.map(c => { const actual = Math.abs(data.transactions.filter(t => t.category === c.name && t.amount < 0).reduce((s, t) => s + t.amount, 0)); return <tr key={c.id}><td>{c.name}</td><td>{money(c.monthlyBudget)}</td><td>{money(actual)}</td><td>{money(c.monthlyBudget - actual)}</td><td><div className="row-actions"><button onClick={() => editCategory(c.id)}>Edit</button><button className="icon-danger" onClick={() => deleteCategory(c.id)}><Trash2 size={14} /> Delete</button></div></td></tr>; })}</tbody></table>}
+  </div>;
 }
 function Debt({ data, update }: { data: AppData; update: (d: AppData) => void }) {
+  function addDebt() {
+    const name = clean(prompt('Debt name? Example: Mortgage, Auto Loan, Credit Card'));
+    if (!name) return;
+    const balance = Math.max(0, promptNumber('Current balance?', 0));
+    const payment = Math.max(0, promptNumber('Monthly payment?', 0));
+    const rate = Math.max(0, promptNumber('Interest rate APR %?', 0));
+    update({ ...data, debts: [...data.debts, { id: uid('debt'), name, balance, payment, rate }] });
+  }
+  function editDebt(id: string) {
+    const existing = data.debts.find((debt) => debt.id === id);
+    if (!existing) return;
+    const name = clean(prompt('Debt name?', existing.name), existing.name);
+    if (!name) return;
+    const balance = Math.max(0, promptNumber('Current balance?', existing.balance));
+    const payment = Math.max(0, promptNumber('Monthly payment?', existing.payment));
+    const rate = Math.max(0, promptNumber('Interest rate APR %?', existing.rate));
+    update({ ...data, debts: data.debts.map((debt) => debt.id === id ? { ...debt, name, balance, payment, rate } : debt) });
+  }
   function deleteDebt(id: string) { if (confirm('Delete this debt?')) update({ ...data, debts: data.debts.filter((d) => d.id !== id) }); }
-  return <div className="card wide"><h3>Debt Tracker</h3><table><thead><tr><th>Debt</th><th>Balance</th><th>Payment</th><th>Rate</th><th>Delete</th></tr></thead><tbody>{data.debts.map(d => <tr key={d.id}><td>{d.name}</td><td>{money(d.balance)}</td><td>{money(d.payment)}</td><td>{d.rate}%</td><td><button className="icon-danger" onClick={() => deleteDebt(d.id)}><Trash2 size={14} /> Delete</button></td></tr>)}</tbody></table></div>;
+  const totalBalance = data.debts.reduce((sum, debt) => sum + debt.balance, 0);
+  const totalPayment = data.debts.reduce((sum, debt) => sum + debt.payment, 0);
+  return <div className="card wide">
+    <div className="split"><div><h3>Debt Tracker</h3><p className="muted">Add, edit, and delete household debts so the monthly budget can account for payments and payoff planning.</p></div><div className="settings-actions"><button className="primary" onClick={addDebt}><PlusCircle size={14} /> Add Debt</button></div></div>
+    <div className="totals"><span>Total debt balance: <strong>{money(totalBalance)}</strong></span><span>Total monthly payments: <strong>{money(totalPayment)}</strong></span></div>
+    {data.debts.length === 0 ? <p className="empty-state">No debt items yet. Use <strong>Add Debt</strong> to add a mortgage, auto loan, credit card, medical bill, personal loan, or other balance.</p> : <table><thead><tr><th>Debt</th><th>Balance</th><th>Payment</th><th>Rate</th><th>Actions</th></tr></thead><tbody>{data.debts.map(d => <tr key={d.id}><td>{d.name}</td><td>{money(d.balance)}</td><td>{money(d.payment)}</td><td>{d.rate}%</td><td><div className="row-actions"><button onClick={() => editDebt(d.id)}>Edit</button><button className="icon-danger" onClick={() => deleteDebt(d.id)}><Trash2 size={14} /> Delete</button></div></td></tr>)}</tbody></table>}
+  </div>;
 }
 
 function PriceCatalog({ data, update }: { data: AppData; update: (d: AppData) => void }) {

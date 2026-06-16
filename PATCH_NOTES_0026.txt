@@ -1,0 +1,10 @@
+HomeLife v2026.06.12.0026
+
+Budget and Debt cleanup patch:
+- Added Edit buttons for budget categories.
+- Added salary/income source tracking on the Budget screen.
+- Salary/income amounts support weekly, bi-weekly, bi-monthly, and monthly pay frequencies.
+- Budget screen now shows monthly income, monthly budget, and income after planned budget.
+- Added Debt add/edit/delete workflow.
+- Debt screen now shows total debt balance and total monthly payments.
+- Added data normalization for older households that do not yet have salary/income sources.

@@ -3298,6 +3298,7 @@ export const DEFAULT_DATA: AppData = {
     { id: 'cat-household', name: 'Household', monthlyBudget: 150 },
     { id: 'cat-utilities', name: 'Utilities', monthlyBudget: 600 }
   ],
+  salarySources: [],
   debts: [],
   shoppingLists: [
     {
