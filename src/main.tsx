@@ -1061,7 +1061,7 @@ function App() {
       </div>
       <nav>{visibleNav.map((n) => { const Icon = n.icon; return <button key={n.id} className={activeNav === n.id ? 'active' : ''} onClick={() => { setPage(n.id); setMobileMenuOpen(false); }}><Icon size={18} /> {n.label}</button>; })}</nav>
       {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this login.</div>}
-      <div className="version-badge">v2026.06.12.0024</div>
+      <div className="version-badge">v2026.06.12.0025</div>
     </aside>
     <main>
       <header className="topbar"><div><h2>{nav.find((n) => n.id === activeNav)?.label ?? 'Dashboard'}</h2><p><strong>{data.householdName ?? 'Household'}</strong> · signed in as <strong>{currentUser.name}</strong> · {roleLabel(currentUser.role)}</p></div><div className="settings-actions"><span className="pill neutral">Code: {householdCode}</span><span className="pill neutral">{cloudStatus}</span><button onClick={signOut}>Switch family/user</button></div></header>
@@ -1169,6 +1169,26 @@ function Register({ data, update }: { data: AppData; update: (d: AppData) => voi
     if (!confirm(`Delete ${account.name}? Transactions assigned to this account will also be deleted.`)) return;
     update({ ...data, accounts: data.accounts.filter((a) => a.id !== id), transactions: data.transactions.filter((t) => t.accountId !== id) });
   }
+  function editStartingBalance(id: string) {
+    const account = data.accounts.find((a) => a.id === id);
+    if (!account) return;
+    const startingBalance = promptNumber(`Starting balance for ${account.name}?`, account.startingBalance);
+    update({
+      ...data,
+      accounts: data.accounts.map((a) => a.id === id ? { ...a, startingBalance } : a)
+    });
+  }
+  function editAccountName(id: string) {
+    const account = data.accounts.find((a) => a.id === id);
+    if (!account) return;
+    const name = clean(prompt('Account name?', account.name), account.name);
+    if (!name) return;
+    const type = clean(prompt('Account type?', account.type), account.type);
+    update({
+      ...data,
+      accounts: data.accounts.map((a) => a.id === id ? { ...a, name, type } : a)
+    });
+  }
   function addTransaction() {
     const accountId = data.accounts.length > 1 ? clean(prompt(`Account id/name? Press OK for ${data.accounts[0].name}`, data.accounts[0].name), data.accounts[0].name) : selectedAccountId;
     const account = data.accounts.find((a) => a.id === accountId || a.name.toLowerCase() === accountId.toLowerCase()) ?? data.accounts[0];
@@ -1185,9 +1205,9 @@ function Register({ data, update }: { data: AppData; update: (d: AppData) => voi
   function toggleCleared(id: string) { update({ ...data, transactions: data.transactions.map(t => t.id === id ? { ...t, cleared: !t.cleared } : t) }); }
   function deleteTransaction(id: string) { if (confirm('Delete this transaction?')) update({ ...data, transactions: data.transactions.filter((t) => t.id !== id) }); }
   return <div className="card wide">
-    <div className="split"><div><h3>Check Register</h3><p className="muted">Private finance area. Restricted profiles cannot see this menu or data. Every register add action now has a matching delete action.</p></div><div className="settings-actions"><button onClick={addTransaction}>Add Transaction</button><button onClick={addAccount}>Add Account</button></div></div>
+    <div className="split"><div><h3>Check Register</h3><p className="muted">Private finance area. Restricted profiles cannot see this menu or data. Add accounts with starting balances, or edit the starting balance later when you begin using the register.</p></div><div className="settings-actions"><button onClick={addTransaction}>Add Transaction</button><button onClick={addAccount}>Add Account</button>{data.accounts[0] && <button onClick={() => editStartingBalance(data.accounts[0].id)}>Set Starting Balance</button>}</div></div>
     <h4>Accounts</h4>
-    <table><thead><tr><th>Account</th><th>Type</th><th>Starting Balance</th><th>Current Balance</th><th>Delete</th></tr></thead><tbody>{data.accounts.map((account) => <tr key={account.id}><td>{account.name}</td><td>{account.type}</td><td>{money(account.startingBalance)}</td><td>{money(accountBalance(data, account.id))}</td><td><button className="icon-danger" onClick={() => deleteAccount(account.id)}><Trash2 size={14} /> Delete</button></td></tr>)}</tbody></table>
+    <table><thead><tr><th>Account</th><th>Type</th><th>Starting Balance</th><th>Current Balance</th><th>Actions</th></tr></thead><tbody>{data.accounts.map((account) => <tr key={account.id}><td>{account.name}</td><td>{account.type}</td><td>{money(account.startingBalance)}</td><td>{money(accountBalance(data, account.id))}</td><td><div className="row-actions"><button onClick={() => editAccountName(account.id)}>Edit Account</button><button onClick={() => editStartingBalance(account.id)}>Edit Starting Balance</button><button className="icon-danger" onClick={() => deleteAccount(account.id)}><Trash2 size={14} /> Delete</button></div></td></tr>)}</tbody></table>
     <h4>Transactions</h4>
     {data.transactions.length === 0 ? <p className="empty-state">No register transactions yet. Use <strong>Add Transaction</strong> to enter one manually, or import a statement from the Statement Import page.</p> : <table><thead><tr><th>Date</th><th>Account</th><th>Description</th><th>Category</th><th>Amount</th><th>Cleared</th><th>Delete</th></tr></thead><tbody>{data.transactions.map(t => { const account = data.accounts.find((a) => a.id === t.accountId); return <tr key={t.id}><td>{t.date}</td><td>{account?.name ?? 'Unknown'}</td><td>{t.description}</td><td>{t.category}</td><td className={t.amount < 0 ? 'negative' : 'positive'}>{money(t.amount)}</td><td><input type="checkbox" checked={t.cleared} onChange={() => toggleCleared(t.id)} /></td><td><button className="icon-danger" onClick={() => deleteTransaction(t.id)}><Trash2 size={14} /> Delete</button></td></tr>; })}</tbody></table>}
   </div>;

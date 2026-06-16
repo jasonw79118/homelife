@@ -1,0 +1,7 @@
+HomeLife v2026.06.12.0025
+
+- Added a clear Set Starting Balance action on the Check Register.
+- Added row-level Edit Starting Balance for every register account.
+- Added row-level Edit Account for account name/type changes.
+- Current balance continues to calculate as starting balance plus account transactions.
+- Version badge updated to v2026.06.12.0025.
