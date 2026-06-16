@@ -1,0 +1,7 @@
+HomeLife v2026.06.12.0027
+
+- Added Check Register smart suggestions based on prior register lines.
+- Add Transaction now looks for similar previous descriptions and can reuse account, category, amount, and cleared defaults.
+- Added Smart Suggestions table with Add Similar buttons for repeat payments/deposits.
+- Added Edit button for register transactions.
+- Register transaction edit supports account, date, description, category, amount, and cleared status.

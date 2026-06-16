@@ -1094,7 +1094,7 @@ function App() {
       </div>
       <nav>{visibleNav.map((n) => { const Icon = n.icon; return <button key={n.id} className={activeNav === n.id ? 'active' : ''} onClick={() => { setPage(n.id); setMobileMenuOpen(false); }}><Icon size={18} /> {n.label}</button>; })}</nav>
       {!canViewFinance && <div className="privacy-note"><EyeOff size={16} /> Register, budget, debt, and statements are hidden for this login.</div>}
-      <div className="version-badge">v2026.06.12.0026</div>
+      <div className="version-badge">v2026.06.12.0027</div>
     </aside>
     <main>
       <header className="topbar"><div><h2>{nav.find((n) => n.id === activeNav)?.label ?? 'Dashboard'}</h2><p><strong>{data.householdName ?? 'Household'}</strong> · signed in as <strong>{currentUser.name}</strong> · {roleLabel(currentUser.role)}</p></div><div className="settings-actions"><span className="pill neutral">Code: {householdCode}</span><span className="pill neutral">{cloudStatus}</span><button onClick={signOut}>Switch family/user</button></div></header>
@@ -1192,6 +1192,86 @@ function Card({ title, value, detail }: { title: string; value: string; detail: 
 
 function Register({ data, update }: { data: AppData; update: (d: AppData) => void }) {
   const selectedAccountId = data.accounts[0]?.id ?? 'acct-checking';
+  function normalizeRegisterText(value: string) {
+    return value.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  function registerTokens(value: string) {
+    return normalizeRegisterText(value).split(' ').filter((token) => token.length > 2 && !['the', 'and', 'for', 'with', 'payment', 'mobile', 'online'].includes(token));
+  }
+  function accountName(accountId: string) {
+    return data.accounts.find((account) => account.id === accountId)?.name ?? data.accounts[0]?.name ?? 'Checking';
+  }
+  function resolveAccount(answer: string, fallbackId: string) {
+    const cleaned = clean(answer);
+    return data.accounts.find((account) => account.id === cleaned || account.name.toLowerCase() === cleaned.toLowerCase())
+      ?? data.accounts.find((account) => account.name.toLowerCase().includes(cleaned.toLowerCase()) && cleaned)
+      ?? data.accounts.find((account) => account.id === fallbackId)
+      ?? data.accounts[0];
+  }
+  function findSmartSuggestion(description: string, excludeId?: string) {
+    const target = normalizeRegisterText(description);
+    if (!target) return undefined;
+    const targetTokens = registerTokens(description);
+    let best: Transaction | undefined;
+    let bestScore = 0;
+    [...data.transactions].reverse().forEach((transaction, index) => {
+      if (transaction.id === excludeId) return;
+      const source = normalizeRegisterText(transaction.description);
+      if (!source) return;
+      let score = 0;
+      if (source === target) score += 6;
+      if (source.includes(target) || target.includes(source)) score += 3;
+      const sourceTokens = registerTokens(transaction.description);
+      const overlap = targetTokens.filter((token) => sourceTokens.includes(token)).length;
+      if (targetTokens.length && sourceTokens.length) score += overlap / Math.max(targetTokens.length, sourceTokens.length) * 3;
+      score += Math.max(0, 0.75 - index * 0.02);
+      if (score > bestScore) { bestScore = score; best = transaction; }
+    });
+    return bestScore >= 1.5 ? best : undefined;
+  }
+  function recentRegisterSuggestions() {
+    const seen = new Set<string>();
+    return [...data.transactions].reverse().filter((transaction) => {
+      const key = `${normalizeRegisterText(transaction.description)}|${transaction.category}|${Math.sign(transaction.amount)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 6);
+  }
+  function promptTransactionDraft(existing?: Transaction, template?: Transaction): Transaction | undefined {
+    if (!data.accounts.length) { alert('Add an account before adding transactions.'); return undefined; }
+    const descriptionDefault = existing?.description ?? template?.description ?? '';
+    const description = clean(prompt('Description? HomeLife will look for prior register lines and suggest the usual category, account, and amount.', descriptionDefault), descriptionDefault);
+    if (!description) return undefined;
+    let smartTemplate = template;
+    const suggestion = existing ? undefined : findSmartSuggestion(description, template?.id);
+    if (suggestion && (!template || suggestion.id !== template.id)) {
+      const suggestionAccount = accountName(suggestion.accountId);
+      const useSuggestion = confirm(`Smart suggestion found from a previous register line:\n\n${suggestion.description}\nAccount: ${suggestionAccount}\nCategory: ${suggestion.category}\nAmount: ${money(suggestion.amount)}\n\nUse these as defaults?`);
+      if (useSuggestion) smartTemplate = suggestion;
+    }
+    const fallbackAccountId = existing?.accountId ?? smartTemplate?.accountId ?? selectedAccountId;
+    const accountAnswer = clean(prompt('Account? Type account name. Previous-line suggestions will default here.', accountName(fallbackAccountId)), accountName(fallbackAccountId));
+    const account = resolveAccount(accountAnswer, fallbackAccountId);
+    if (!account) { alert('Account not found. Add the account first.'); return undefined; }
+    const date = clean(prompt('Date? YYYY-MM-DD', existing?.date ?? today()), existing?.date ?? today());
+    const categoryDefault = existing?.category ?? smartTemplate?.category ?? 'Uncategorized';
+    const category = clean(prompt('Category?', categoryDefault), categoryDefault);
+    const amountDefault = existing?.amount ?? smartTemplate?.amount ?? 0;
+    const amount = promptNumber('Amount? Enter debit/spending as negative and credit/income as positive.', amountDefault);
+    const clearedDefault = existing?.cleared ?? smartTemplate?.cleared ?? false;
+    const clearedAnswer = clean(prompt('Cleared? yes or no', clearedDefault ? 'yes' : 'no'), clearedDefault ? 'yes' : 'no').toLowerCase();
+    const cleared = ['yes', 'y', 'true', 'cleared', '1'].includes(clearedAnswer);
+    return {
+      id: existing?.id ?? uid('txn'),
+      accountId: account.id,
+      date,
+      description,
+      category: category || 'Uncategorized',
+      amount,
+      cleared
+    };
+  }
   function addAccount() {
     const name = clean(prompt('Account name? Example: Checking, Savings, Cash Envelope')); if (!name) return;
     const type = clean(prompt('Account type? checking, savings, cash, credit', 'checking'), 'checking');
@@ -1225,27 +1305,28 @@ function Register({ data, update }: { data: AppData; update: (d: AppData) => voi
       accounts: data.accounts.map((a) => a.id === id ? { ...a, name, type } : a)
     });
   }
-  function addTransaction() {
-    const accountId = data.accounts.length > 1 ? clean(prompt(`Account id/name? Press OK for ${data.accounts[0].name}`, data.accounts[0].name), data.accounts[0].name) : selectedAccountId;
-    const account = data.accounts.find((a) => a.id === accountId || a.name.toLowerCase() === accountId.toLowerCase()) ?? data.accounts[0];
-    if (!account) { alert('Add an account before adding transactions.'); return; }
-    const date = clean(prompt('Date? YYYY-MM-DD', today()), today());
-    const description = clean(prompt('Description? Example: Walmart Grocery')); if (!description) return;
-    const category = clean(prompt('Category? Example: Groceries, Utilities, Paycheck', 'Groceries'), 'Uncategorized');
-    const rawType = clean(prompt('Type? debit or credit', 'debit'), 'debit').toLowerCase();
-    const amountInput = Math.abs(promptNumber('Amount?', 0));
-    const amount = rawType === 'credit' ? amountInput : -amountInput;
-    const transaction: Transaction = { id: uid('txn'), accountId: account.id, date, description, category, amount, cleared: false };
+  function addTransaction(template?: Transaction) {
+    const transaction = promptTransactionDraft(undefined, template);
+    if (!transaction) return;
     update({ ...data, transactions: [...data.transactions, transaction].sort((a, b) => a.date.localeCompare(b.date)) });
+  }
+  function editTransaction(id: string) {
+    const existing = data.transactions.find((transaction) => transaction.id === id);
+    if (!existing) return;
+    const updated = promptTransactionDraft(existing);
+    if (!updated) return;
+    update({ ...data, transactions: data.transactions.map((transaction) => transaction.id === id ? updated : transaction).sort((a, b) => a.date.localeCompare(b.date)) });
   }
   function toggleCleared(id: string) { update({ ...data, transactions: data.transactions.map(t => t.id === id ? { ...t, cleared: !t.cleared } : t) }); }
   function deleteTransaction(id: string) { if (confirm('Delete this transaction?')) update({ ...data, transactions: data.transactions.filter((t) => t.id !== id) }); }
+  const smartSuggestions = recentRegisterSuggestions();
   return <div className="card wide">
-    <div className="split"><div><h3>Check Register</h3><p className="muted">Private finance area. Restricted profiles cannot see this menu or data. Add accounts with starting balances, or edit the starting balance later when you begin using the register.</p></div><div className="settings-actions"><button onClick={addTransaction}>Add Transaction</button><button onClick={addAccount}>Add Account</button>{data.accounts[0] && <button onClick={() => editStartingBalance(data.accounts[0].id)}>Set Starting Balance</button>}</div></div>
+    <div className="split"><div><h3>Check Register</h3><p className="muted">Private finance area. Restricted profiles cannot see this menu or data. Add accounts with starting balances, edit transactions later, and use smart suggestions from previous register lines for repeat payments and deposits.</p></div><div className="settings-actions"><button onClick={() => addTransaction()}>Add Transaction</button><button onClick={addAccount}>Add Account</button>{data.accounts[0] && <button onClick={() => editStartingBalance(data.accounts[0].id)}>Set Starting Balance</button>}</div></div>
     <h4>Accounts</h4>
     <table><thead><tr><th>Account</th><th>Type</th><th>Starting Balance</th><th>Current Balance</th><th>Actions</th></tr></thead><tbody>{data.accounts.map((account) => <tr key={account.id}><td>{account.name}</td><td>{account.type}</td><td>{money(account.startingBalance)}</td><td>{money(accountBalance(data, account.id))}</td><td><div className="row-actions"><button onClick={() => editAccountName(account.id)}>Edit Account</button><button onClick={() => editStartingBalance(account.id)}>Edit Starting Balance</button><button className="icon-danger" onClick={() => deleteAccount(account.id)}><Trash2 size={14} /> Delete</button></div></td></tr>)}</tbody></table>
+    {smartSuggestions.length > 0 && <><h4>Smart Suggestions</h4><p className="muted">These are built from prior register lines. Use <strong>Add Similar</strong> for repeat transactions, or start typing a matching description with Add Transaction to reuse the usual category, account, and amount as defaults.</p><table><thead><tr><th>Previous line</th><th>Account</th><th>Category</th><th>Amount</th><th>Action</th></tr></thead><tbody>{smartSuggestions.map((suggestion) => <tr key={`suggestion-${suggestion.id}`}><td>{suggestion.description}</td><td>{accountName(suggestion.accountId)}</td><td>{suggestion.category}</td><td className={suggestion.amount < 0 ? 'negative' : 'positive'}>{money(suggestion.amount)}</td><td><button onClick={() => addTransaction(suggestion)}>Add Similar</button></td></tr>)}</tbody></table></>}
     <h4>Transactions</h4>
-    {data.transactions.length === 0 ? <p className="empty-state">No register transactions yet. Use <strong>Add Transaction</strong> to enter one manually, or import a statement from the Statement Import page.</p> : <table><thead><tr><th>Date</th><th>Account</th><th>Description</th><th>Category</th><th>Amount</th><th>Cleared</th><th>Delete</th></tr></thead><tbody>{data.transactions.map(t => { const account = data.accounts.find((a) => a.id === t.accountId); return <tr key={t.id}><td>{t.date}</td><td>{account?.name ?? 'Unknown'}</td><td>{t.description}</td><td>{t.category}</td><td className={t.amount < 0 ? 'negative' : 'positive'}>{money(t.amount)}</td><td><input type="checkbox" checked={t.cleared} onChange={() => toggleCleared(t.id)} /></td><td><button className="icon-danger" onClick={() => deleteTransaction(t.id)}><Trash2 size={14} /> Delete</button></td></tr>; })}</tbody></table>}
+    {data.transactions.length === 0 ? <p className="empty-state">No register transactions yet. Use <strong>Add Transaction</strong> to enter one manually, or import a statement from the Statement Import page.</p> : <table><thead><tr><th>Date</th><th>Account</th><th>Description</th><th>Category</th><th>Amount</th><th>Cleared</th><th>Actions</th></tr></thead><tbody>{data.transactions.map(t => { const account = data.accounts.find((a) => a.id === t.accountId); return <tr key={t.id}><td>{t.date}</td><td>{account?.name ?? 'Unknown'}</td><td>{t.description}</td><td>{t.category}</td><td className={t.amount < 0 ? 'negative' : 'positive'}>{money(t.amount)}</td><td><input type="checkbox" checked={t.cleared} onChange={() => toggleCleared(t.id)} /></td><td><div className="row-actions"><button onClick={() => editTransaction(t.id)}>Edit</button><button className="icon-danger" onClick={() => deleteTransaction(t.id)}><Trash2 size={14} /> Delete</button></div></td></tr>; })}</tbody></table>}
   </div>;
 }
 function Budget({ data, update }: { data: AppData; update: (d: AppData) => void }) {
